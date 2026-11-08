@@ -36,8 +36,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: cache
-          key: loadline-cache-${{ github.run_id }}
-          restore-keys: loadline-cache-
+          key: forecast-cache-${{ github.run_id }}
+          restore-keys: forecast-cache-
       - name: Forecast India
         run: python india.py
       - name: Forecast the rest of the world

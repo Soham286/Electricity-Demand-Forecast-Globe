@@ -1,14 +1,14 @@
-# Loadline
+# Electricity Demand Forecast Globe
 
 **Hour by hour electricity demand forecasts for India, its states and 41 other countries, on an interactive 3D globe.**
 
-![Loadline: a 3D globe that glows where electricity is being used, with a forecast panel](docs/screenshot.png)
+![Electricity Demand Forecast Globe: a 3D globe that glows where electricity is being used, with a forecast panel](docs/screenshot.png)
 
-Loadline forecasts how much electricity a country or region will use over the next 48 hours, tests
+This project forecasts how much electricity a country or region will use over the next 48 hours, tests
 those forecasts against past days they never saw, and shows where the electricity comes from. It is
 the same job grid operators do every day, built entirely from free public data, with no API keys.
 
-**Live site:** `https://<your-user>.github.io/<repo-name>/` (available once the daily workflow has run once, see [Daily updates](#daily-updates))
+**Live site:** <https://soham286.github.io/Electricity-Demand-Forecast-Globe/> (available once the daily workflow has run once, see [Daily updates](#daily-updates))
 
 ## Contents
 
@@ -94,7 +94,7 @@ Pages hosting are free.
 ## How it works
 
 India publishes electricity use for each grid and state every day, up to yesterday, but no free live
-hourly feed. Most other countries do publish hourly demand. Loadline therefore uses two routes.
+hourly feed. Most other countries do publish hourly demand. The project therefore uses two routes.
 
 **India: daily level multiplied by hourly shape.**
 
@@ -156,7 +156,7 @@ Lower is better. "Last week" is the simple guess a useful forecast must beat.
 
 ### India
 
-| Area | Test | Loadline | Last week |
+| Area | Test | Our model | Last week |
 |---|---|---|---|
 | All India | Every hour, 25 Mar to 24 Jun 2025 | **3.5%** | 5.7% |
 | All India | Daily energy, 09 Aug to 06 Nov 2026 | **2.0%** | 3.3% |
@@ -165,13 +165,13 @@ Lower is better. "Last week" is the simple guess a useful forecast must beat.
 | Five grids | Daily peak, last 90 days | **4.1% to 6.4%** | 5.3% to 6.5% |
 | 33 states | Daily total, last 90 days | **2.6% to 10.9%** | 3.6% to 18.5% |
 
-Loadline beats the simple guess in 33 of 33 states and in 5 of 5 grids on daily totals. On daily peaks it beats the guess in 4 of 5 grids.
+The model beats the simple guess in 33 of 33 states and in 5 of 5 grids on daily totals. On daily peaks it beats the guess in 4 of 5 grids.
 
 ### Other countries
 
-Hourly error over the last 90 days across **58 areas in 41 countries**: 1.8% to 17.2%, typically 3.9%. Loadline beats the simple guess in **58 of 58**. Best: Norway (1.8%). Weakest: Bosnia and Herzegovina (17.2%).
+Hourly error over the last 90 days across **58 areas in 41 countries**: 1.8% to 17.2%, typically 3.9%. The model beats the simple guess in **58 of 58**. Best: Norway (1.8%). Weakest: Bosnia and Herzegovina (17.2%).
 
-| Whole country | Loadline | Last week | Grid operators' own forecast |
+| Whole country | Our model | Last week | Grid operators' own forecast |
 |---|---|---|---|
 | Australia (main grid) | **2.9%** | 5.0% | not published |
 | Brazil (whole country) | **2.5%** | 4.3% | not published |
@@ -179,7 +179,7 @@ Hourly error over the last 90 days across **58 areas in 41 countries**: 1.8% to 
 
 **United States, grid by grid.** Grid operators have live data and publish their own forecasts.
 
-| Grid | Loadline | Last week | Operator |
+| Grid | Our model | Last week | Operator |
 |---|---|---|---|
 | California | **6.4%** | 12.6% | 8.2% |
 | Florida (US) | 5.0% | 8.2% | 2.9% |
@@ -193,7 +193,7 @@ Hourly error over the last 90 days across **58 areas in 41 countries**: 1.8% to 
 | Texas | 3.4% | 6.6% | 1.4% |
 | US Midwest | 3.0% | 6.3% | 2.1% |
 
-Loadline beat the operator in 2 of 11 grids (California, Southwest Power Pool (US)); bold marks those.
+The model beat the operator in 2 of 11 grids (California, Southwest Power Pool (US)); bold marks those.
 
 ### Expected ranges
 
@@ -217,9 +217,9 @@ These fall short of 80% in places because errors can grow faster than past error
 - **Regional and state hours in India are estimates.** No free regional or state hourly data exists,
   so they follow the national daily shape rescaled to each grid's usual peak. States publish no
   peaks at all, so their "% of busiest hour" is estimated.
-- **Grid operators beat Loadline in most of the US.** Operators have live data. Loadline beat the
+- **Grid operators beat this model in most of the US.** Operators have live data. The model beat the
   operator's own forecast in only two of 11 US grids, and the 11 grids added together are forecast
-  far better by the operators than by Loadline.
+  far better by the operators than by this model.
 - **Expected ranges are calibrated, not perfect.** They are tuned to hold the real value 80% of the
   time on earlier data, but errors can grow faster than the past suggests, so some areas fall short.
 - **Some small countries have noisy data**, such as Bosnia and Herzegovina, North Macedonia, Moldova

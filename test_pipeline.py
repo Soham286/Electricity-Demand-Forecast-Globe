@@ -37,3 +37,13 @@ def test_calibrated_band_covers_the_goal_on_steady_errors_and_never_misses_the_f
     lo, hi, cover, m = calibrate(err)
     assert lo <= 0 <= hi and cover >= 72
     assert widen(-0.1, 0.1, 2) == (-0.2, 0.2)
+
+
+def test_the_demand_model_can_be_built_and_fitted():
+    # lightgbm's scikit-learn interface needs scikit-learn installed; a missing requirement shows up here in seconds
+    from pipeline import fit, predict
+    rng = np.random.default_rng(2)
+    x = pd.DataFrame({"hour": rng.integers(0, 24, 200), "temperature_2m": rng.normal(20, 5, 200), "level": np.full(200, 100.0)})
+    y = pd.Series(100 * (1 + 0.01 * x["hour"]))
+    model = fit(x, y)
+    assert np.isfinite(predict(model, x)).all()

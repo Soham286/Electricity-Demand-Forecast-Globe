@@ -1,4 +1,4 @@
-<title>Loadline</title>
+<title>Electricity Demand Forecast Globe</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="claude:viewport-fit-sides" content="cover">
@@ -60,14 +60,14 @@ button:active { transform: scale(.98); }
 /* floating translucent cards over the globe, so text stays readable on bright daytime land */
 .brand, .total, .legend3d, .rank, .time { z-index: 2; }
 .brand, .total { position: absolute; top: 16px; padding: 12px 16px; background: var(--glass); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--line); border-radius: 12px; pointer-events: none; }
-.brand { left: max(16px, env(safe-area-inset-left, 0px)); max-width: 360px; }
-.brand h1 { margin: 0; font: 600 var(--t-3xl) var(--sans); letter-spacing: -.01em; background: linear-gradient(90deg, #FFFFFF, #9B9B9B); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.brand { left: max(16px, env(safe-area-inset-left, 0px)); max-width: 380px; }
+.brand h1 { margin: 0; font: 600 var(--t-xl) var(--sans); letter-spacing: -.01em; background: linear-gradient(90deg, #FFFFFF, #9B9B9B); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .brand p { margin: 4px 0 0; color: var(--muted); font: var(--t-xs) var(--sans); }
 .total { right: max(16px, env(safe-area-inset-right, 0px)); text-align: right; }
 .total b { display: block; font: 600 var(--t-3xl) var(--sans); font-variant-numeric: tabular-nums; }
 .total small { color: var(--muted); font: var(--t-xs) var(--sans); }
 
-.rank { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); top: 128px; max-height: calc(100% - 232px); width: 200px; overflow-y: auto; scrollbar-width: none; padding: 8px 4px; background: var(--glass); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--line); border-radius: 12px; }
+.rank { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); top: 148px; max-height: calc(100% - 252px); width: 200px; overflow-y: auto; scrollbar-width: none; padding: 8px 4px; background: var(--glass); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--line); border-radius: 12px; }
 .rank h2 { margin: 0 8px 4px; font: 500 var(--t-xs) var(--sans); color: var(--faint); }
 .rank button { display: grid; grid-template-columns: 1fr 40px; gap: 0 8px; width: 100%; padding: 4px 8px; text-align: left; border-radius: 8px; font: var(--t-xs) var(--sans); }
 .rank button:hover { background: rgba(255, 255, 255, .07); }
@@ -241,7 +241,7 @@ footer { color: var(--faint); font: var(--t-xs) var(--sans); }
       <div id="nogl" hidden>This device could not start 3D graphics. Pick a grid from the list; every forecast still works.</div>
     </div>
     <div class="brand">
-      <h1>Loadline</h1>
+      <h1>Electricity Demand Forecast Globe</h1>
       <p id="sub"></p>
     </div>
     <div class="total"><b id="total"></b><small>all-India demand</small></div>
@@ -867,7 +867,7 @@ function drawStatic() {
   $("scoreNote").textContent = r.scoreNote;
   $("score").innerHTML = r.tests.map(x => {
     const max = Math.max(x.model, x.base, x.op || 0), row = (n, v, c) => `<div class="row"><span>${n}</span><div class="track"><i style="width:${v / max * 100}%;background:${c}"></i></div><span class="v">${v.toFixed(1)}%</span></div>`;
-    return `<div class="test"><h4>${x.title}<small>${x.when}</small></h4>${row("Loadline model", x.model, C.forecast)}${x.op != null ? row("Grid operator's own forecast", x.op, C.operator) : ""}${row("Same time last week", x.base, C.muted)}</div>`;
+    return `<div class="test"><h4>${x.title}<small>${x.when}</small></h4>${row("Our model", x.model, C.forecast)}${x.op != null ? row("Grid operator's own forecast", x.op, C.operator) : ""}${row("Same time last week", x.base, C.muted)}</div>`;
   }).join("");
   $("coverage").textContent = `The shaded expected range caught the real value ${r.coverage}% of the time (${r.coverageOf}). The goal is 80%. A typical ${r.maeOf} miss is ${gw(r.mae, 2)} GW.`;
   const t = r.tests[0], better = t.model < t.base;
