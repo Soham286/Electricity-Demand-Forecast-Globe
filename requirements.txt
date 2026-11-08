@@ -1,0 +1,9 @@
+numpy
+pandas
+lightgbm
+scipy
+requests
+holidays
+tzdata
+openpyxl
+pytest

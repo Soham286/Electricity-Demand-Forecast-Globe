@@ -1,0 +1,1049 @@
+<title>Loadline</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Hour by hour electricity demand forecast for India, its five regional grids and 33 states, with generation by fuel, built from public Grid-India and weather data.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23000'/%3E%3Cpath d='M18 4 9 18h6l-2 10 10-15h-6z' fill='%23cb8018'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a grid control room. The planet fills the left, one area's dossier scrolls on the right, one timeline drives both.
+   Visual system follows elayadesign/ai-design-skills (landing-page-design, part B): one typeface (Geist, with Geist Mono for
+   numbers), sizes on the Tailwind scale, spacing on 2/4/8/12/16/24/32/40/48/64, Tailwind radii, flat near-black surfaces,
+   one motion curve. */
+:root {
+  color-scheme: dark;
+  --bg: #000000; --surface: #181818; --raise: #1F1F1F; --line: #313131; --glass: rgba(24, 24, 24, .78);
+  --fg: #ededed; --muted: #a8a8a8; --faint: #7a7a7a;
+  --actual: #3f9bd0; --forecast: #cb8018; --operator: #a277e6;
+  --f-nuclear: #9085e9; --f-fossil: #d95926; --f-hydro: #3987e5; --f-wind: #199e70; --f-solar: #c98500; --f-other: #008300;
+  --sans: "Geist", "Segoe UI", system-ui, sans-serif;
+  --mono: "Geist Mono", ui-monospace, Consolas, monospace;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* type scale: size / line height */
+  --t-xs: 12px/16px; --t-sm: 14px/20px; --t-base: 16px/24px; --t-xl: 20px/28px; --t-3xl: 30px/36px; --t-4xl: 36px/40px; --t-6xl: 60px/60px;
+}
+html, body { height: 100%; margin: 0; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--fg); font: 400 var(--t-sm) var(--sans); }
+p { text-wrap: pretty; }
+* { box-sizing: border-box; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; transition: background-color .3s var(--ease), transform .3s var(--ease), opacity .3s var(--ease); }
+button:active { transform: scale(.98); }
+:focus-visible { outline: 2px solid var(--forecast); outline-offset: 2px; }
+.skip { position: absolute; left: 16px; top: -48px; z-index: 20; padding: 8px 12px; border-radius: 8px; background: var(--fg); color: var(--bg); font: 600 var(--t-sm) var(--sans); text-decoration: none; }
+.skip:focus { top: 16px; }
+.app { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(400px, 37%); }
+
+.left { position: relative; min-width: 0; overflow: hidden; }
+.stage { position: absolute; inset: 0; cursor: grab; touch-action: none; }
+.stage.drag { cursor: grabbing; }
+.stage canvas { display: block; position: absolute; inset: 0; }
+#pins { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.pin { position: absolute; left: 0; top: 0; width: 24px; height: 24px; margin: -12px 0 0 -12px; pointer-events: auto; padding: 0; }
+.pin:active { transform: none; }
+.pin i { position: absolute; inset: 8px; border-radius: 50%; background: var(--c, var(--forecast)); box-shadow: 0 0 0 1px rgba(0, 0, 0, .8); }
+.pin:hover i, .pin.on i { inset: 4px; box-shadow: 0 0 0 2px var(--fg); }
+.pin span { position: absolute; left: 24px; top: 4px; padding: 0 4px; font: 500 var(--t-xs) var(--sans); white-space: nowrap; background: rgba(0, 0, 0, .72); border-radius: 4px; transition: opacity .3s var(--ease); }
+.pin.on span { background: var(--fg); color: var(--bg); }
+.pin.quiet span { opacity: 0; }
+.pin:hover span { opacity: 1; z-index: 2; }
+#tip .card { display: grid; gap: 2px; min-width: 150px; }
+#tip .card b { font: 600 var(--t-xs) var(--sans); }
+#tip .card svg { display: block; margin-top: 4px; }
+@media (prefers-reduced-motion: no-preference) {
+  aside > * { animation: rise .6s var(--ease) both; }
+  aside > *:nth-child(2) { animation-delay: .06s; } aside > *:nth-child(3) { animation-delay: .12s; }
+  aside > *:nth-child(4) { animation-delay: .18s; } aside > *:nth-child(n+5) { animation-delay: .24s; }
+  @keyframes rise { from { opacity: .6; transform: translateY(24px); } } /* starts readable, so a paused or captured frame is never blank */
+}
+
+/* floating translucent cards over the globe, so text stays readable on bright daytime land */
+.brand, .total, .legend3d, .rank, .time { z-index: 2; }
+.brand, .total { position: absolute; top: 16px; padding: 12px 16px; background: var(--glass); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--line); border-radius: 12px; pointer-events: none; }
+.brand { left: max(16px, env(safe-area-inset-left, 0px)); max-width: 360px; }
+.brand h1 { margin: 0; font: 600 var(--t-3xl) var(--sans); letter-spacing: -.01em; background: linear-gradient(90deg, #FFFFFF, #9B9B9B); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.brand p { margin: 4px 0 0; color: var(--muted); font: var(--t-xs) var(--sans); }
+.total { right: max(16px, env(safe-area-inset-right, 0px)); text-align: right; }
+.total b { display: block; font: 600 var(--t-3xl) var(--sans); font-variant-numeric: tabular-nums; }
+.total small { color: var(--muted); font: var(--t-xs) var(--sans); }
+
+.rank { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); top: 128px; max-height: calc(100% - 232px); width: 200px; overflow-y: auto; scrollbar-width: none; padding: 8px 4px; background: var(--glass); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--line); border-radius: 12px; }
+.rank h2 { margin: 0 8px 4px; font: 500 var(--t-xs) var(--sans); color: var(--faint); }
+.rank button { display: grid; grid-template-columns: 1fr 40px; gap: 0 8px; width: 100%; padding: 4px 8px; text-align: left; border-radius: 8px; font: var(--t-xs) var(--sans); }
+.rank button:hover { background: rgba(255, 255, 255, .07); }
+.pick { display: grid; gap: 4px; padding: 8px 8px 4px; }
+.pick label { font: 500 var(--t-xs) var(--sans); color: var(--faint); }
+.pick select { width: 100%; padding: 4px 8px; background: var(--raise); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; font: var(--t-sm) var(--sans); }
+.pick select:focus-visible { outline: 2px solid var(--forecast); }
+#worldBtn { justify-self: start; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; font: 500 var(--t-xs) var(--sans); color: var(--muted); }
+#worldBtn:hover { background: var(--raise); color: var(--fg); }
+.rank .grp { margin: 12px 8px 4px; font: 500 var(--t-xs) var(--sans); color: var(--faint); text-transform: uppercase; letter-spacing: .06em; }
+.rank button.grid { margin-top: 8px; font-weight: 600; }
+.rank button.nation { font-weight: 600; }
+.rank button.state { padding-left: 16px; color: var(--muted); }
+.rank button.state.on { color: var(--fg); }
+.rank button.on { background: var(--raise); box-shadow: inset 0 0 0 1px var(--line); }
+.rank .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rank .p { font: var(--t-xs) var(--mono); text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rank .bar { grid-column: 1 / -1; height: 2px; background: var(--line); margin-top: 2px; border-radius: 2px; }
+.rank .bar i { display: block; height: 100%; border-radius: 2px; }
+
+.time { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); right: 16px; bottom: 16px; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; padding: 12px 16px; background: var(--glass); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--line); border-radius: 12px; }
+#play { grid-row: 1 / 3; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; background: var(--forecast); color: #1c1205; }
+#play:hover { background: #dc8f22; }
+#play svg { width: 16px; height: 16px; }
+.time label { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font: var(--t-xs) var(--mono); font-variant-numeric: tabular-nums; }
+.time label b { font-weight: 500; }
+.time label span { color: var(--muted); }
+#scrub { position: relative; z-index: 1; display: block; width: 100%; height: 32px; margin: 0; background: transparent; -webkit-appearance: none; appearance: none; cursor: pointer; }
+#scrub::-webkit-slider-runnable-track { height: 32px; background: transparent; }
+#scrub::-webkit-slider-thumb { -webkit-appearance: none; width: 4px; height: 32px; border-radius: 2px; background: var(--fg); box-shadow: 0 0 0 2px rgba(0, 0, 0, .6); }
+#scrub::-moz-range-track { height: 32px; background: transparent; }
+#scrub::-moz-range-thumb { width: 4px; height: 32px; border: 0; border-radius: 2px; background: var(--fg); box-shadow: 0 0 0 2px rgba(0, 0, 0, .6); }
+.legend3d .hint { margin-top: 8px; color: var(--faint); font: var(--t-xs) var(--sans); }
+.legend3d { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); top: 112px; width: 160px; text-align: right; font: var(--t-xs) var(--sans); color: var(--muted); pointer-events: none; }
+.ramp { height: 8px; border-radius: 4px; margin: 4px 0 2px; }
+.ramp + div { display: flex; justify-content: space-between; font: var(--t-xs) var(--mono); }
+
+aside { min-width: 0; background: var(--surface); border-left: 1px solid var(--line); overflow-y: auto; padding-block: 24px 48px; padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 32px; }
+.head h2 { margin: 0; font: 600 var(--t-4xl) var(--sans); letter-spacing: -.01em; text-wrap: balance; }
+.head p { margin: 8px 0 0; color: var(--muted); font: var(--t-sm) var(--sans); }
+.read { display: grid; grid-template-columns: auto minmax(max-content, 1.3fr) repeat(2, minmax(0, 1fr)); gap: 16px; align-items: end; }
+.read .big b { font: 600 var(--t-6xl) var(--sans); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.read .big small { font: 500 var(--t-xl) var(--sans); color: var(--muted); margin-left: 4px; }
+.read .big div { color: var(--muted); font: var(--t-xs) var(--sans); margin-top: 4px; }
+.kv b { display: block; white-space: nowrap; font: 500 var(--t-sm) var(--mono); font-variant-numeric: tabular-nums; }
+.kv span { color: var(--muted); font: var(--t-xs) var(--sans); }
+.alert { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border: 1px solid var(--forecast); border-radius: 8px; font: var(--t-sm) var(--sans); }
+.alert svg { flex: none; width: 16px; height: 16px; color: var(--forecast); }
+
+section h3 { margin: 0 0 4px; font: 600 var(--t-base) var(--sans); }
+section > p { margin: 0 0 8px; color: var(--muted); font: var(--t-sm) var(--sans); }
+.story { margin: 0; padding: 16px; list-style: none; display: grid; gap: 8px; background: var(--raise); border: 1px solid var(--line); border-radius: 12px; font: var(--t-base) var(--sans); }
+.story li { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 8px; text-wrap: pretty; }
+.story li::before { content: ""; width: 8px; height: 8px; margin-top: 8px; border-radius: 50%; background: var(--c, var(--forecast)); }
+.story b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.verdict { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 16px; align-items: center; padding: 16px; background: var(--raise); border: 1px solid var(--line); border-radius: 12px; }
+.verdict .v { font: 600 var(--t-4xl) var(--sans); letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.verdict .t { font: var(--t-base) var(--sans); }
+.verdict .chip { display: inline-block; margin-top: 4px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; font: 500 var(--t-xs) var(--sans); }
+.verdict .chip.good { border-color: var(--f-wind); color: #5fd1a8; }
+.verdict .chip.warn { border-color: var(--forecast); color: var(--forecast); }
+.verdict ul { grid-column: 1 / -1; margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; color: var(--muted); font: var(--t-sm) var(--sans); }
+.verdict ul b { color: var(--fg); font-weight: 500; }
+.verdict .small { grid-column: 1 / -1; margin: 4px 0 0; color: var(--muted); font: var(--t-xs) var(--sans); }
+details.students { border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; }
+details.students[open] { display: grid; gap: 24px; }
+details.students > summary { font: 600 var(--t-base) var(--sans); }
+details.students > summary::marker { color: var(--muted); }
+.how { margin: 0 0 8px; color: var(--muted); font: var(--t-sm) var(--sans); }
+.how summary { cursor: pointer; width: fit-content; color: var(--fg); font: 500 var(--t-xs) var(--sans); padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; list-style: none; transition: background-color .3s var(--ease); }
+.how summary::-webkit-details-marker { display: none; }
+.how summary:hover { background: var(--raise); }
+.how summary::before { content: "+ "; color: var(--muted); }
+.how[open] summary::before { content: "\2212 "; }
+.how p { margin: 8px 0 0; }
+.caption { position: absolute; left: 50%; bottom: 112px; z-index: 3; width: min(440px, calc(100% - 32px)); transform: translateX(-50%); padding: 12px 16px; background: var(--glass); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--line); border-radius: 12px; font: var(--t-sm) var(--sans); pointer-events: none; }
+.caption .title { display: block; font: 600 var(--t-base) var(--sans); margin-bottom: 2px; }
+.caption b { font-weight: 600; }
+.caption .step { float: right; color: var(--muted); font: var(--t-xs) var(--mono); }
+.track { position: relative; height: 32px; }
+#trackArt { position: absolute; inset: 0; width: 100%; height: 32px; border-radius: 4px; overflow: hidden; }
+.time label, .time .track { grid-column: 2; }
+#tour { grid-column: 3; grid-row: 1 / 3; height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; font: 500 var(--t-xs) var(--sans); color: var(--fg); }
+#tour:hover { background: var(--raise); }
+#tour[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+.keys { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-bottom: 4px; font: var(--t-xs) var(--sans); color: var(--muted); }
+.keys i { display: inline-block; width: 16px; height: 4px; border-radius: 2px; margin-right: 4px; vertical-align: middle; background: var(--c); }
+.keys i.d { background: repeating-linear-gradient(90deg, var(--c) 0 4px, transparent 4px 8px); }
+.keys i.a { height: 8px; background: var(--c); opacity: .3; }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; overflow: visible; }
+.chart text { fill: var(--muted); font: 12px var(--mono); }
+.chart .lab { fill: var(--fg); }
+#strip { display: grid; grid-template-columns: repeat(49, minmax(0, 1fr)); gap: 2px; height: 32px; }
+#strip button { padding: 0; border-radius: 2px; }
+#strip button:active { transform: none; }
+#strip button.on { outline: 2px solid var(--fg); outline-offset: 2px; position: relative; z-index: 1; }
+.ticks { position: relative; height: 16px; font: var(--t-xs) var(--mono); color: var(--muted); margin-top: 4px; }
+.ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.ticks span:first-child { transform: none; }
+
+.fresh { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.fresh b { display: block; font: 500 var(--t-xs) var(--mono); }
+.fresh span { color: var(--muted); font: var(--t-xs) var(--sans); display: block; }
+.supKpi { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 4px 0 12px; }
+.supKpi b { display: block; font: 500 var(--t-base) var(--mono); font-variant-numeric: tabular-nums; }
+.supKpi span { display: block; color: var(--muted); font: var(--t-xs) var(--sans); }
+.supKpi .tag { display: inline-block; margin-top: 4px; padding: 0 8px; border: 1px solid var(--line); border-radius: 4px; color: var(--fg); }
+#supShort { margin: 8px 0 0; color: var(--muted); font: var(--t-xs) var(--sans); }
+@media (max-width: 920px) { .supKpi { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.festRows { display: flex; flex-wrap: wrap; gap: 8px; }
+.festRows div { padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--raise); font: var(--t-xs) var(--sans); }
+.festRows b { font: 500 var(--t-xs) var(--mono); margin-left: 8px; font-variant-numeric: tabular-nums; }
+.festRows small { display: block; color: var(--muted); font: var(--t-xs) var(--sans); }
+.test { padding: 8px 0; }
+.test + .test { border-top: 1px solid var(--line); }
+.test h4 { margin: 0; font: 500 var(--t-sm) var(--sans); }
+.test h4 small { margin-left: 8px; color: var(--muted); font: var(--t-xs) var(--sans); }
+.score div.row { display: grid; grid-template-columns: 152px minmax(0, 1fr) 56px; gap: 8px; align-items: center; padding: 4px 0; font: var(--t-xs) var(--sans); }
+.score .track i { display: block; height: 8px; border-radius: 0 4px 4px 0; }
+.score .v { font: 500 var(--t-xs) var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
+.score .note { margin: 8px 0 0; color: var(--muted); font: var(--t-xs) var(--sans); }
+.seg { display: flex; gap: 2px; height: 12px; margin-bottom: 8px; }
+.seg i { display: block; }
+.seg i:first-child { border-radius: 4px 0 0 4px; }
+.seg i:last-child { border-radius: 0 4px 4px 0; }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+details summary { cursor: pointer; font: 600 var(--t-base) var(--sans); }
+.tw { max-height: 320px; overflow: auto; margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font: var(--t-xs) var(--mono); font-variant-numeric: tabular-nums; }
+th { position: sticky; top: 0; background: var(--raise); font-weight: 500; color: var(--muted); }
+th, td { padding: 4px 8px; text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+tr.on td { background: var(--raise); }
+footer { color: var(--faint); font: var(--t-xs) var(--sans); }
+#tip { position: fixed; z-index: 9; pointer-events: none; padding: 8px 12px; background: var(--raise); border: 1px solid var(--line); border-radius: 8px; font: var(--t-xs) var(--mono); white-space: nowrap; box-shadow: 0 8px 24px rgba(0, 0, 0, .6); }
+#tip i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+#nogl { position: absolute; left: 50%; top: 45%; transform: translate(-50%, -50%); width: min(280px, 60%); color: var(--muted); text-align: center; }
+
+@media (max-width: 1180px) { .legend3d { display: none; } }
+@media (max-width: 920px) {
+  html, body { height: auto; }
+  .app { display: block; height: auto; }
+  .left { height: auto; display: flex; flex-direction: column; overflow: visible; }
+  .stage { position: relative; inset: auto; height: 64vh; min-height: 400px; order: 1; overflow: hidden; touch-action: pan-y; }
+  .brand, .total { padding: 8px 12px; }
+  .brand h1, .total b { font: 600 var(--t-xl) var(--sans); }
+  .brand p { display: none; }
+  .time { position: relative; left: auto; right: auto; bottom: auto; order: 2; margin: 12px max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px)); }
+  .rank { position: static; order: 3; width: auto; max-height: none; display: block; overflow: visible; background: none; backdrop-filter: none; -webkit-backdrop-filter: none; border: 0; border-radius: 0; padding: 12px max(16px, env(safe-area-inset-right, 0px)) 12px max(16px, env(safe-area-inset-left, 0px)); }
+  .regions { display: flex; gap: 4px; overflow-x: auto; }
+  .rank h2 { display: none; }
+  .caption { bottom: 16px; }
+  .time { grid-template-columns: 40px minmax(0, 1fr); }
+  #tour { grid-column: 1 / -1; grid-row: 3; margin-top: 8px; }
+  .rank button { flex: 0 0 136px; }
+  aside { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+  .read { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .read .big { grid-column: 1 / -1; }
+  .two { grid-template-columns: minmax(0, 1fr); }
+  .score div.row { grid-template-columns: 120px minmax(0, 1fr) 48px; }
+}
+</style>
+
+<a class="skip" href="#panel">Skip to the forecast details</a>
+<main class="app">
+  <div class="left">
+    <div class="stage" id="stage">
+      <div id="pins"></div>
+      <div class="caption" id="caption" hidden aria-live="polite"></div>
+      <div id="nogl" hidden>This device could not start 3D graphics. Pick a grid from the list; every forecast still works.</div>
+    </div>
+    <div class="brand">
+      <h1>Loadline</h1>
+      <p id="sub"></p>
+    </div>
+    <div class="total"><b id="total"></b><small>all-India demand</small></div>
+    <div class="legend3d">Glow and column colour
+      <div class="ramp" id="ramp"></div><div><span>45%</span><span>of busiest hour</span><span>100%</span></div>
+      <div class="hint">The brighter a place glows, the more electricity it is using right now. Pick a country to see its regions. Scroll to zoom, drag to turn.</div>
+    </div>
+    <nav class="rank" id="rank" aria-label="Choose a country and region">
+      <div class="pick"><label for="country">Country</label><select id="country"></select><button id="worldBtn" type="button">Whole world</button></div>
+      <h2 id="regionHead"></h2>
+      <div class="regions" id="regions"></div>
+    </nav>
+    <div class="time">
+      <button id="play" aria-label="Play the 48 hour forecast"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9.5-5.5z" fill="currentColor"/></svg></button>
+      <label for="scrub"><b id="when"></b><span id="ahead"></span></label>
+      <button id="tour" aria-pressed="false">Tour the grids</button>
+      <div class="track"><svg id="trackArt" aria-hidden="true"></svg><input id="scrub" type="range" min="0" step="1" aria-label="Hour of the forecast"></div>
+    </div>
+  </div>
+
+  <aside id="panel" aria-live="polite">
+    <div class="head"><h2 id="rname"></h2><p id="rmeta"></p></div>
+    <ul class="story" id="story" aria-label="Summary"></ul>
+    <div class="read">
+      <div class="big"><b id="gw"></b><small>GW</small><div id="rtime"></div></div>
+      <div class="kv"><b id="band"></b><span>expected range, GW</span></div>
+      <div class="kv"><b id="pct"></b><span id="pctLabel">of the busiest hour of the past year</span></div>
+      <div class="kv"><b id="temp"></b><span>temperature then</span></div>
+    </div>
+    <details class="how"><summary>What do these numbers mean?</summary><p><b>GW</b> (gigawatt) measures how much electricity is being used at one moment. A bigger number means more demand. The <b>expected range</b> is where we think the real figure will land. <b>% of the busiest hour</b> compares this hour with the highest demand seen in the past year, so 100% would mean a new record.</p></details>
+    <div class="alert" id="alert" hidden></div>
+    <section id="festBox" hidden>
+      <h3>Festivals coming up</h3>
+      <p>Demand usually dips around these festivals. We learned the usual size of each dip from past years, and the forecast already includes it.</p>
+      <div class="festRows" id="fest"></div>
+    </section>
+
+    <section>
+      <h3>Demand: the past 3 days and the next 48 hours</h3>
+      <p>How to read it: the higher the line, the more electricity is being used. Each hill is one day, with demand rising through the day and falling at night. Blue is the past, orange is what we expect, and the shaded band is the range we expect it to stay in.</p>
+      <details class="how"><summary>How this chart is built</summary><p id="mainNote"></p></details>
+      <div class="keys" id="mainKeys"></div>
+      <div class="chart" id="main"></div>
+    </section>
+
+    <section hidden>
+      <h3 id="stripTitle"></h3>
+      <p id="stripNote"></p>
+      <div id="strip" role="group" aria-label="Hourly forecast"></div>
+      <div class="ticks" id="stripTicks"></div>
+    </section>
+
+    <section id="supplySec">
+      <h3>Where the electricity comes from</h3>
+      <p>How to read it: each colour is one way of making electricity. The taller the stack, the more was made that day. The dashed white line is how much was used.</p>
+      <details class="how"><summary>About this data</summary><p id="supplyNote"></p></details>
+      <div class="supKpi" id="supKpi"></div>
+      <div class="keys" id="supKeys"></div>
+      <div class="chart" id="supply"></div>
+      <p class="note" id="supShort"></p>
+    </section>
+
+    <section>
+      <h3>Can we trust this forecast?</h3>
+      <div id="verdict"></div>
+    </section>
+
+    <details class="students" id="students">
+      <summary>For students: the technical charts</summary>
+      <section class="score">
+        <h3>Forecast mistakes, compared with a simple guess</h3>
+        <p>How to read it: a shorter bar means a smaller mistake. The grey bar is a very simple guess: "demand will be the same as at this time last week". A useful forecast must beat it.</p>
+        <details class="how"><summary>How the tests work</summary><p id="scoreNote"></p></details>
+        <div id="score"></div>
+        <p class="note" id="coverage"></p>
+      </section>
+      <section>
+        <h3>Does the weather change how much electricity we use?</h3>
+        <p>How to read it: each dot is one past hour (or day). Left to right is temperature and bottom to top is electricity used. Dots rising towards the right mean hot weather raises demand (air conditioning). Dots rising towards the left mean cold weather raises it (heating). The orange ring is the hour you selected.</p>
+        <p id="scatterNote"></p>
+        <div class="chart" id="scatter"></div>
+      </section>
+      <section>
+        <h3 id="btTitle"></h3>
+        <p>How to read it: the blue line is real demand and the orange line is what the model would have predicted at the time. The closer the two lines sit, the better the forecast.</p>
+        <p id="btNote"></p>
+        <div class="keys" id="btKeys"></div>
+        <div class="chart" id="bt"></div>
+      </section>
+      <section>
+        <h3>What clues does the model use?</h3>
+        <p>How to read it: each bar shows how much the model relied on three kinds of clue: recent demand, the calendar (weekday, holidays) and the weather. A longer coloured piece means a more important clue.</p>
+        <div id="drivers"></div>
+      </section>
+    </details>
+
+    <details class="how">
+      <summary>Where the data comes from</summary>
+      <div class="fresh" id="fresh"></div>
+    </details>
+
+    <details>
+      <summary>Hour by hour table</summary>
+      <div class="tw"><table id="table"></table></div>
+    </details>
+    <footer id="foot"></footer>
+  </aside>
+</main>
+<div id="tip" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<script src="land.js"></script>
+<script src="data.js"></script>
+<script src="world.js"></script>
+<script>
+const D = window.GRID_DATA, H = D.horizon, HR = 3600, $ = id => document.getElementById(id);
+if (window.WORLD_DATA) D.regions = D.regions.concat(window.WORLD_DATA.regions);
+const T0 = r => r.start || D.start;
+const HL = r => r.kind === "country" ? "Past demand" : "Past demand (estimated)";
+const CALM = matchMedia("(prefers-reduced-motion: reduce)").matches;
+// national first, then each grid west to east with its states under it, largest first
+const GRIDS_ORDER = D.regions.filter(r => r.kind === "grid").sort((a, b) => a.lon - b.lon);
+const INDIA = D.regions.filter(r => r.kind === "nation").concat(...GRIDS_ORDER.map(g => [g, ...D.regions.filter(r => r.grid === g.id).sort((a, b) => b.p50[0] - a.p50[0])]));
+const WORLD = D.regions.filter(r => r.kind === "country").sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name));
+const REG = INDIA.concat(WORLD);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const C = { actual: css("--actual"), forecast: css("--forecast"), operator: css("--operator"), line: css("--line"), muted: css("--muted"), fg: css("--fg"), bg: css("--bg") };
+const elapsed = Math.floor((Date.now() / 1000 - D.start) / HR);
+let hour = Math.max(0, Math.min(H, elapsed));
+let sel = REG.find(r => r.id === "IN");
+
+function share(r, h) { return r.p50[h] / r.peak; }
+const gw = (mw, d = 1) => (mw / 1000).toFixed(d);
+const clock = (t, tz, o) => new Intl.DateTimeFormat("en-GB", { timeZone: tz, ...o }).format(t * 1000);
+const stamp = (t, tz) => clock(t, tz, { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+
+// A heated filament: dull red through orange to near white. One direction of brightness, so it reads as magnitude.
+const STOPS = [[.45, [92, 36, 16]], [.65, [214, 92, 24]], [.85, [255, 176, 80]], [1, [255, 242, 208]]];
+function heat(s) {
+  const v = Math.max(.45, Math.min(1, s));
+  for (let i = 1; i < STOPS.length; i++) if (v <= STOPS[i][0]) {
+    const [a, ca] = STOPS[i - 1], [b, cb] = STOPS[i], k = (v - a) / (b - a);
+    return ca.map((c, j) => Math.round(c + (cb[j] - c) * k));
+  }
+  return STOPS[3][1];
+}
+const heatCss = s => `rgb(${heat(s).join(",")})`;
+$("ramp").style.background = `linear-gradient(90deg,${STOPS.map(s => `rgb(${s[1].join(",")})`).join(",")})`;
+
+/* ---------- Globe ---------- */
+const G = { ok: false };
+function xyz(lat, lon, r = 1) {
+  const a = lat * Math.PI / 180, b = lon * Math.PI / 180;
+  return new THREE.Vector3(r * Math.cos(a) * Math.cos(b), r * Math.sin(a), -r * Math.cos(a) * Math.sin(b));
+}
+function sunDir(t) {
+  const d = new Date(t * 1000), doy = (d - Date.UTC(d.getUTCFullYear(), 0, 0)) / 864e5;
+  const decl = -23.44 * Math.cos(2 * Math.PI / 365 * (doy + 10));
+  return xyz(decl, (12 - (d.getUTCHours() + d.getUTCMinutes() / 60)) * 15);
+}
+function landTexture() {
+  const c = document.createElement("canvas"); c.width = 4096; c.height = 2048;
+  const x = c.getContext("2d"), w = window.WORLD, path = g => {
+    const ring = r => r.forEach((p, i) => { const X = (p[0] + 180) / 360 * c.width, Y = (90 - p[1]) / 180 * c.height; i ? x.lineTo(X, Y) : x.moveTo(X, Y); });
+    x.beginPath();
+    (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : g.coordinates.map(l => [l])).forEach(poly => poly.forEach(ring));
+  };
+  x.fillStyle = "#000"; x.fillRect(0, 0, c.width, c.height);
+  x.globalCompositeOperation = "lighter";
+  x.fillStyle = "#f00";
+  topojson.feature(w, w.objects.countries).features.forEach(f => { if (f.geometry) { path(f.geometry); x.fill("evenodd"); } });
+  x.strokeStyle = "#0f0"; x.lineWidth = 1.6;
+  path(topojson.mesh(w, w.objects.countries, (a, b) => a !== b)); x.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.generateMipmaps = false; t.minFilter = THREE.LinearFilter; t.wrapS = THREE.RepeatWrapping;
+  return t;
+}
+function initGlobe() {
+  const stage = $("stage");
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setClearColor(C.bg);
+  stage.prepend(renderer.domElement);
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(30, 1, .1, 100), globe = new THREE.Group();
+  scene.add(globe);
+
+  // a half degree map of how brightly each place glows; it is repainted whenever the hour changes and eased towards its new value
+  const LW = 720, LH = 360, field = new Float32Array(LW * LH), target = new Float32Array(LW * LH), bytes = new Uint8Array(LW * LH);
+  const lightTex = new THREE.DataTexture(bytes, LW, LH, THREE.LuminanceFormat, THREE.UnsignedByteType);
+  lightTex.unpackAlignment = 1; lightTex.magFilter = lightTex.minFilter = THREE.LinearFilter; lightTex.wrapS = THREE.RepeatWrapping; lightTex.generateMipmaps = false; lightTex.needsUpdate = true;
+  let lightMove = false;
+  const uniforms = { land: { value: landTexture() }, light: { value: lightTex }, sun: { value: new THREE.Vector3(1, 0, 0) } };
+  globe.add(new THREE.Mesh(new THREE.SphereGeometry(1, 128, 128), new THREE.ShaderMaterial({
+    uniforms, extensions: { derivatives: true },
+    vertexShader: `varying vec3 vN; varying vec3 vW; varying vec3 vV;
+      void main(){ vN=normal; vW=normalize(normalMatrix*normal); vec4 m=modelViewMatrix*vec4(position,1.); vV=normalize(-m.xyz); gl_Position=projectionMatrix*m; }`,
+    fragmentShader: `#define PI 3.14159265
+      uniform sampler2D land; uniform sampler2D light; uniform vec3 sun; varying vec3 vN; varying vec3 vW; varying vec3 vV;
+      float hash(vec2 p){ return fract(sin(dot(p,vec2(12.99,78.23)))*43758.5); }
+      void main(){
+        vec3 n=normalize(vN);
+        float lat=asin(clamp(n.y,-1.,1.)), lon=atan(-n.z,n.x);
+        float rows=720., li=(lat/PI+.5)*rows, r=floor(li), clat=(r+.5)/rows*PI-PI/2.;
+        float nc=max(6.,floor(2.*rows*cos(clat))), lj=(lon/(2.*PI)+.5)*nc, cj=floor(lj);
+        vec2 cuv=vec2((cj+.5)/nc, (r+.5)/rows);
+        float isLand=step(.5,texture2D(land,cuv).r);
+        vec2 f=vec2(fract(li)-.5,fract(lj)-.5);
+        float aa=clamp(fwidth(li)*1.1,.03,.5);
+        float d=smoothstep(.40+aa,.40-aa,length(f))*isLand;
+        float sd=dot(n,normalize(sun)), day=smoothstep(-.10,.16,sd);
+        float city=.35+.65*hash(vec2(r,cj));
+        vec3 sea=mix(vec3(.012,.024,.042),vec3(.035,.085,.13),day);
+        vec3 dots=mix(vec3(1.,.50,.16)*city*.4,vec3(.62,.76,.80),day);
+        vec3 w=normalize(vW), v=normalize(vV);
+        float face=max(dot(w,v),0.);
+        float rim=mix(.3,1.,smoothstep(0.,.5,face)); // thicker-air look, and no shimmer at the edge
+        vec3 col=sea+d*dots*rim;
+        vec2 lluv=vec2(lon/(2.*PI)+.5, lat/PI+.5);
+        float lit=texture2D(light,lluv).r*mix(1.,.55,day);
+        float ground=texture2D(land,lluv).r;
+        vec3 warm=mix(vec3(1.,.40,.08),vec3(1.,.88,.58),smoothstep(.5,1.,lit));
+        col+=warm*lit*(d*1.7+ground*.3+.05)*rim; // each dot of land lights up in step with how much power its area is using
+        float border=texture2D(land,vec2(lon/(2.*PI)+.5,lat/PI+.5)).g;
+        col+=border*mix(vec3(.28,.15,.07),vec3(.20,.30,.34),day)*.8;
+        col+=vec3(1.,.42,.12)*exp(-pow(sd/.035,2.))*.16;
+        float fr=pow(1.-face,3.);
+        col+=vec3(.25,.55,.85)*fr*(.12+.55*day);
+        gl_FragColor=vec4(col,1.);
+      }`,
+  })));
+
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(1.13, 64, 64), new THREE.ShaderMaterial({
+    side: THREE.BackSide, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+    vertexShader: `varying vec3 vW; varying vec3 vV; void main(){ vW=normalize(normalMatrix*normal); vec4 m=modelViewMatrix*vec4(position,1.); vV=normalize(-m.xyz); gl_Position=projectionMatrix*m; }`,
+    fragmentShader: `varying vec3 vW; varying vec3 vV; void main(){ float a=pow(max(dot(normalize(vW),normalize(vV)),0.),4.2); gl_FragColor=vec4(vec3(.22,.5,.85),a*1.1); }`,
+  })));
+
+  const sp = new Float32Array(4500);
+  for (let i = 0; i < sp.length; i += 3) {
+    const v = new THREE.Vector3().randomDirection ? new THREE.Vector3().randomDirection() : new THREE.Vector3(Math.random() - .5, Math.random() - .5, Math.random() - .5).normalize();
+    v.multiplyScalar(30); sp[i] = v.x; sp[i + 1] = v.y; sp[i + 2] = v.z;
+  }
+  const sg = new THREE.BufferGeometry(); sg.setAttribute("position", new THREE.BufferAttribute(sp, 3));
+  scene.add(new THREE.Points(sg, new THREE.PointsMaterial({ color: 0x8fa3b0, size: .05, transparent: true, opacity: .55 })));
+
+  const up = new THREE.Vector3(0, 1, 0), colGeo = new THREE.CylinderGeometry(.0075, .0075, 1, 12, 1, true).translate(0, .5, 0);
+  const colVert = `varying float h; void main(){ h=uv.y; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`;
+  const colFrag = `uniform vec3 c; varying float h; void main(){ gl_FragColor=vec4(c,(1.-h*.75)); }`;
+  const repOf = name => { const a = COUNTRIES.get(name).areas; return a.find(x => x.total || x.kind === "nation") || a[0]; };  // the marker for a whole country
+  const bars = REG.filter(r => r.kind === "state" || r.kind === "country" || r.kind === "nation").map(r => {
+    const pos = xyz(r.lat, r.lon), q = new THREE.Quaternion().setFromUnitVectors(up, pos);
+    const col = new THREE.Mesh(colGeo, new THREE.ShaderMaterial({ uniforms: { c: { value: new THREE.Color() } }, vertexShader: colVert, fragmentShader: colFrag, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    col.position.copy(pos); col.quaternion.copy(q); globe.add(col);
+    const halo = new THREE.Mesh(new THREE.RingGeometry(.011, .05, 40), new THREE.ShaderMaterial({
+      uniforms: { c: col.material.uniforms.c }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+      vertexShader: `varying vec2 p; void main(){ p=position.xy; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
+      fragmentShader: `uniform vec3 c; varying vec2 p; void main(){ gl_FragColor=vec4(c,pow(1.-length(p)/.05,2.)*.8); }`,
+    }));
+    halo.position.copy(pos.clone().multiplyScalar(1.0015)); halo.lookAt(pos.clone().multiplyScalar(2)); globe.add(halo);
+    const pulse = new THREE.Mesh(new THREE.RingGeometry(.044, .05, 48), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, side: THREE.DoubleSide, depthWrite: false, opacity: 0 }));
+    pulse.position.copy(pos.clone().multiplyScalar(1.002)); pulse.lookAt(pos.clone().multiplyScalar(2)); globe.add(pulse);
+    const burst = new THREE.Mesh(new THREE.RingGeometry(.016, .021, 48), new THREE.MeshBasicMaterial({ color: 0xffe2b0, transparent: true, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+    burst.position.copy(pos.clone().multiplyScalar(1.0025)); burst.lookAt(pos.clone().multiplyScalar(2)); globe.add(burst);
+
+    const b = document.createElement("button");
+    b.className = "pin"; b.tabIndex = -1; b.setAttribute("aria-hidden", "true");
+    b.innerHTML = `<i></i><span>${r.name}</span>`;
+    b.onclick = () => { if (level === "world") pickCountry(countryOf(r)); else select(r); };
+    b.onpointerenter = e => showTip(card(r), e);
+    b.onpointermove = e => showTip(card(r), e);
+    b.onpointerleave = () => { tip.hidden = true; };
+    $("pins").append(b);
+    const country = countryOf(r);
+    return { r, pos, col, halo, pulse, burst, burstAt: -1e9, peakH: r.p50.indexOf(Math.max(...r.p50)), el: b, height: .1, country, label: r.name, vis: false, isRep: repOf(country) === r, isArea: !r.total && r.kind !== "nation" };
+  });
+
+  const view = { yaw: 0, pitch: .3, dist: 2.75, tYaw: 0, tPitch: .3, tDist: 2.75, vy: 0, vp: 0, drag: false, intro: !CALM };
+  const born = performance.now();
+  if (!CALM && el0().animate) renderer.domElement.animate([{ opacity: 0, transform: "scale(.92)" }, { opacity: 1, transform: "scale(1)" }], { duration: 900, easing: "cubic-bezier(0.22,1,0.36,1)", fill: "both" });
+  function el0() { return renderer.domElement; }
+  let px = 0, py = 0, moved = 0;
+  const el = renderer.domElement;
+  stage.addEventListener("pointerdown", e => {
+    if (e.target !== el) return;
+    if (e.pointerType === "touch") return; // on phones a touch scrolls the page; the list below picks grids
+    view.drag = true; moved = 0; px = e.clientX; py = e.clientY; stage.classList.add("drag"); el.setPointerCapture(e.pointerId);
+  });
+  el.addEventListener("pointermove", e => {
+    if (!view.drag) return;
+    const k = .0048 * view.dist / 4.5, dx = (e.clientX - px) * k, dy = (e.clientY - py) * k;
+    px = e.clientX; py = e.clientY; moved += Math.abs(dx) + Math.abs(dy);
+    view.tYaw += dx; view.tPitch = Math.max(-1.35, Math.min(1.35, view.tPitch + dy)); view.vy = dx; view.vp = dy;
+  });
+  const end = () => { view.drag = false; stage.classList.remove("drag"); };
+  el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+  stage.addEventListener("wheel", e => { e.preventDefault(); view.tDist = Math.max(1.7, Math.min(7, view.tDist * Math.exp(e.deltaY * .0011))); }, { passive: false });
+
+  let W = 1, Ht = 1, tier = 0;
+  const RATIOS = [Math.min(devicePixelRatio, 2), 1.5, 1].filter((v, i, a) => i === 0 || v < a[0]);
+  new ResizeObserver(() => {
+    W = stage.clientWidth; Ht = stage.clientHeight;
+    renderer.setSize(W, Ht); camera.aspect = W / Ht; camera.updateProjectionMatrix();
+    view.tDist = Math.max(view.tDist, W / Ht < .9 ? 3.4 : 2.75);
+  }).observe(stage);
+
+  const v = new THREE.Vector3(), tmp = new THREE.Vector3(), cam = new THREE.Vector3();
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (!view.drag) { view.tYaw += view.vy; view.tPitch = Math.max(-1.35, Math.min(1.35, view.tPitch + view.vp)); view.vy *= .93; view.vp *= .93; }
+    const e = CALM ? 1 : now - born < 2600 ? .03 : .085;
+    // quality step-down: if frames run slow, render fewer pixels so the globe stays smooth
+    const dt = Math.min(100, now - (frame.last || now)); frame.last = now;
+    frame.sum = (frame.sum || 0) + dt; frame.n = (frame.n || 0) + 1;
+    if (frame.n === 90) {
+      if (frame.sum / 90 > 22 && tier < RATIOS.length - 1) { tier++; renderer.setPixelRatio(RATIOS[tier]); renderer.setSize(W, Ht); }
+      frame.sum = frame.n = 0;
+    }
+    view.yaw += (view.tYaw - view.yaw) * e; view.pitch += (view.tPitch - view.pitch) * e; view.dist += (view.tDist - view.dist) * e;
+    globe.rotation.set(view.pitch, view.yaw, 0);
+    camera.position.set(0, 0, view.dist); camera.updateMatrixWorld(); globe.updateMatrixWorld(true);
+    cam.copy(camera.position);
+    const placed = [];
+    const mineOf = b => level === "world" ? b.country === countryOf(sel) : (b.r === sel || b.r.grid === sel.id);
+    const items = bars.filter(b => b.vis).map(b => {
+      const goal = .012 + .12 * Math.pow(Math.max(0, Math.min(1.1, share(b.r, hour)) - .35) / .65, 1.6);
+      b.height += (goal - b.height) * (CALM ? 1 : .12);
+      b.col.scale.set(b.r === sel ? 1.5 : 1, b.height, b.r === sel ? 1.5 : 1);
+      const on = b.r === sel, t = ((now / 1600) % 1);
+      b.pulse.material.opacity = on && !CALM ? (1 - t) * .8 : on ? .7 : 0;
+      b.pulse.scale.setScalar(on && !CALM ? 1 + t * 1.6 : 1.2);
+      const k = (now - b.burstAt) / 1400; // a ring rings out when playback reaches this state's forecast peak
+      b.burst.material.opacity = k >= 0 && k < 1 ? (1 - k) * .9 : 0;
+      if (k >= 0 && k < 1) b.burst.scale.setScalar(1 + k * 5);
+      tmp.copy(b.pos).applyMatrix4(globe.matrixWorld);
+      const facing = tmp.clone().normalize().dot(tmp.clone().sub(cam).negate().normalize());
+      v.copy(b.pos).multiplyScalar(1 + b.height).applyMatrix4(globe.matrixWorld).project(camera);
+      return { b, facing, x: (v.x + 1) / 2 * W, y: (1 - v.y) / 2 * Ht };
+    }).sort((a, b) => (mineOf(b.b) - mineOf(a.b)) || (level === "world" ? b.b.r.p50[hour] - a.b.r.p50[hour] : share(b.b.r, hour) - share(a.b.r, hour)));
+    items.forEach(({ b, facing, x, y }) => {
+      const o = Math.max(0, Math.min(1, (facing - .1) / .25));
+      b.el.style.opacity = o;
+      b.el.style.filter = o < 1 ? `blur(${((1 - o) * 6).toFixed(1)}px)` : "";
+      b.el.style.pointerEvents = o > .6 ? "auto" : "none";
+      if (o === 0) return;
+      b.el.style.transform = `translate(${x}px,${y}px)`;
+      const w = b.label.length * 7 + 24, box = [x + 10, y - 10, x + 10 + w, y + 10];
+      const mine = mineOf(b);
+      const hit = placed.some(p => box[0] < p[2] && box[2] > p[0] && box[1] < p[3] && box[3] > p[1]) || (!mine && placed.length >= 8);
+      b.el.classList.toggle("quiet", hit);
+      if (!hit) placed.push(box);
+    });
+    if (lightMove) {
+      let big = 0;
+      const k = CALM ? 1 : .16;
+      for (let i = 0; i < field.length; i++) {
+        const d = target[i] - field[i];
+        field[i] += d * k; bytes[i] = field[i] * 255;
+        if (d > big) big = d; else if (-d > big) big = -d;
+      }
+      lightTex.needsUpdate = true;
+      if (big < .003) lightMove = false;
+    }
+    renderer.render(scene, camera);
+  }
+  const glowing = REG.filter(r => (r.kind === "state" || r.kind === "country") && !r.total);
+  function computeLights() {
+    const acc = new Float32Array(LW * LH);
+    glowing.forEach(r => {
+      const sh = Math.min(1.1, share(r, hour)), dens = Math.max(0, Math.min(1, (Math.log10(r.p50[hour]) - 2.5) / 2.5));
+      const power = Math.pow(sh, 2.2) * (.4 + .6 * dens); // busier than usual and big, so it glows most
+      const sig = Math.max(1.1, .9 + .75 * Math.log10(r.peak / 1000)), reach = sig * 3, cl = Math.max(.2, Math.cos(r.lat * Math.PI / 180));
+      const y0 = Math.max(0, Math.floor((r.lat - reach + 90) * 2)), y1 = Math.min(LH - 1, Math.ceil((r.lat + reach + 90) * 2)), xr = reach / cl;
+      for (let y = y0; y <= y1; y++) {
+        const dy = (y + .5) / 2 - 90 - r.lat;
+        for (let xi = Math.floor((r.lon - xr + 180) * 2); xi <= Math.ceil((r.lon + xr + 180) * 2); xi++) {
+          const dx = ((xi + .5) / 2 - 180 - r.lon) * cl;
+          acc[y * LW + ((xi % LW) + LW) % LW] += power * Math.exp(-(dx * dx + dy * dy) / (2 * sig * sig));
+        }
+      }
+    });
+    for (let i = 0; i < acc.length; i++) target[i] = 1 - Math.exp(-acc[i] * 1.4);
+    lightMove = true;
+  }
+  G.ok = true;
+  G.setHour = () => {
+    computeLights();
+    uniforms.sun.value.copy(sunDir(D.start + hour * HR));
+    bars.forEach(b => {
+      if (hour === b.peakH && !CALM) b.burstAt = performance.now();
+      const s = share(b.r, hour), [r, g, bl] = heat(s);
+      b.col.material.uniforms.c.value.setRGB(r / 255, g / 255, bl / 255);
+      b.el.style.setProperty("--c", `rgb(${r},${g},${bl})`);
+    });
+  };
+  G.zoom = d => { view.tDist = d; };
+  // world view: one dot per country. country view: only that country's regions, with columns.
+  G.apply = () => bars.forEach(b => {
+    b.vis = level === "world" ? b.isRep : (b.country === scope && b.isArea);
+    b.el.style.display = b.vis ? "" : "none";
+    b.col.visible = b.halo.visible = b.pulse.visible = b.burst.visible = b.vis && level === "country";
+    b.label = level === "world" ? b.country : (b.r.short || b.r.name);
+    b.el.querySelector("span").textContent = b.label;
+  });
+  G.select = r => bars.forEach(b => b.el.classList.toggle("on", level === "world" ? b.country === countryOf(r) : (b.r === r || b.r.grid === r.id)));
+  G.focus = (name, instant) => {
+    const pts = COUNTRIES.get(name).areas.filter(r => !r.total && r.kind !== "nation");
+    const lat = pts.reduce((a, r) => a + r.lat, 0) / pts.length, lon = pts.reduce((a, r) => a + r.lon, 0) / pts.length;
+    const spread = Math.max(...pts.map(r => Math.hypot(r.lat - lat, (r.lon - lon) * Math.cos(lat * Math.PI / 180))));
+    const want = -Math.PI / 2 - lon * Math.PI / 180 + .14; // off-centre, a column aimed at the camera cannot be seen
+    let d = (want - view.tYaw) % (2 * Math.PI);
+    if (d > Math.PI) d -= 2 * Math.PI;
+    if (d < -Math.PI) d += 2 * Math.PI;
+    view.tYaw += d; view.tPitch = Math.max(-1, Math.min(1, lat * Math.PI / 180 - .12)); view.vy = view.vp = 0;
+    const close = Math.min(5, Math.max(pts.length === 1 && name !== "India" ? 3.3 : 2.75, 2.7 + Math.max(0, spread - 8) * .075));  // a bigger country needs a wider view
+    view.tDist = Math.max(level === "world" ? 5 : close, W / Ht < .9 ? 3.4 : 0);
+    if (instant) { view.yaw = view.tYaw; view.pitch = view.tPitch; }
+    if (view.intro) { view.intro = false; view.yaw = view.tYaw - 1.5; view.pitch = view.tPitch + .45; view.dist = 7; }
+  };
+  G.apply();
+  requestAnimationFrame(frame);
+}
+
+/* ---------- Charts ---------- */
+const NS = "http://www.w3.org/2000/svg";
+const tip = $("tip");
+function showTip(html, e) {
+  tip.innerHTML = html; tip.hidden = false;
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.max(8, Math.min(innerWidth - w - 8, e.clientX + 14)) + "px";
+  tip.style.top = Math.max(8, Math.min(innerHeight - h - 8, e.clientY - h - 10)) + "px";
+}
+function card(r) {
+  const v = r.p50, lo = Math.min(...v), hi = Math.max(...v), W = 150, Hh = 34;
+  const pt = (x, i) => `${(i / (v.length - 1) * W).toFixed(1)},${(Hh - 3 - (x - lo) / (hi - lo || 1) * (Hh - 6)).toFixed(1)}`;
+  const [cx, cy] = pt(v[hour], hour).split(",");
+  return `<div class="card"><b>${r.name}</b><span>${gw(v[hour], 2)} GW &middot; ${Math.round(share(r, hour) * 100)}% of ${r.peakLabel ? "est. " : ""}peak</span>` +
+    `<svg width="${W}" height="${Hh}" viewBox="0 0 ${W} ${Hh}" aria-hidden="true"><polyline points="${v.map(pt).join(" ")}" fill="none" stroke="${C.forecast}" stroke-width="1.5"/><circle cx="${cx}" cy="${cy}" r="3" fill="${C.fg}"/></svg>` +
+    `<span style="color:var(--muted)">next 48 hours</span></div>`;
+}
+function nice(lo, hi, n = 4) {
+  const raw = (hi - lo) / n, p = 10 ** Math.floor(Math.log10(raw)), step = [1, 2, 2.5, 5, 10].map(m => m * p).find(s => s >= raw);
+  const out = []; for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-6; v += step) out.push(v);
+  return out;
+}
+function pathOf(start, vals, X, Y) {
+  let d = "", pen = false;
+  vals.forEach((v, i) => { if (v == null) { pen = false; return; } d += `${pen ? "L" : "M"}${X(start + i * HR).toFixed(1)} ${Y(v).toFixed(1)}`; pen = true; });
+  return d;
+}
+/* series: {name,color,start,values,dash,width}. Times are unix seconds, one value per hour. */
+function lineChart(el, o) {
+  const W = Math.max(240, el.clientWidth || 300), Ht = o.height, m = { l: 34, r: 8, t: 8, b: 20 };
+  const all = o.series.flatMap(s => s.values).concat(o.band ? [...o.band.lo, ...o.band.hi] : []).filter(v => v != null);
+  const lo = Math.min(...all), hi = Math.max(...all), pad = (hi - lo) * .07, y0 = lo - pad, y1 = hi + pad;
+  const X = t => m.l + (t - o.t0) / (o.t1 - o.t0) * (W - m.l - m.r), Y = v => m.t + (y1 - v) / (y1 - y0) * (Ht - m.t - m.b);
+  let s = `<svg viewBox="0 0 ${W} ${Ht}" height="${Ht}" role="img" aria-label="${o.label}">`;
+  nice(y0, y1).forEach(v => { s += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="${C.line}"/><text x="${m.l - 6}" y="${Y(v) + 3.5}" text-anchor="end">${gw(v, v % 1000 ? 1 : 0)}</text>`; });
+  const dayStep = o.dayEvery || 1;
+  let lastDay = null, count = 0;
+  for (let t = o.t0; t <= o.t1; t += HR) {
+    const day = clock(t, sel.tz, { day: "2-digit" }), hr = clock(t, sel.tz, { hour: "2-digit", hourCycle: "h23" });
+    if (hr === "00" && day !== lastDay) {
+      lastDay = day;
+      if (count++ % dayStep === 0) {
+        const x = X(t);
+        s += `<line x1="${x}" x2="${x}" y1="${m.t}" y2="${Ht - m.b}" stroke="${C.line}" stroke-dasharray="1 4"/>`;
+        if (x < W - 24) s += `<text x="${x + 3}" y="${Ht - 6}">${clock(t, sel.tz, { weekday: "short", day: "numeric" })}</text>`;
+      }
+    }
+  }
+  if (o.band) {
+    const b = o.band, top = b.hi.map((v, i) => `${i ? "L" : "M"}${X(b.start + i * HR).toFixed(1)} ${Y(v).toFixed(1)}`).join(""),
+      bot = b.lo.map((v, i) => `L${X(b.start + (b.lo.length - 1 - i) * HR).toFixed(1)} ${Y(b.lo[b.lo.length - 1 - i]).toFixed(1)}`).join("");
+    s += `<path d="${top}${bot}Z" fill="${C.forecast}" opacity=".2"/>`;
+  }
+  if (o.nowT) s += `<line x1="${X(o.nowT)}" x2="${X(o.nowT)}" y1="${m.t}" y2="${Ht - m.b}" stroke="${C.muted}"/><text class="lab" x="${X(o.nowT) - 4}" y="${m.t + 9}" text-anchor="end">Forecast starts</text>`;
+  o.series.forEach(ser => { s += `<path ${ser.dash ? "" : 'class="draw"'} d="${pathOf(ser.start, ser.values, X, Y)}" fill="none" stroke="${ser.color}" stroke-width="${ser.width || 2}" stroke-linejoin="round" stroke-linecap="round" ${ser.dash ? `stroke-dasharray="${ser.dash}"` : ""}/>`; });
+  s += `<g class="cur" visibility="hidden"><line stroke="${C.fg}" stroke-width="1" y1="${m.t}" y2="${Ht - m.b}"/><circle r="4.5" fill="${C.fg}" stroke="${C.bg}" stroke-width="2"/></g>`;
+  s += `<g class="hov" visibility="hidden"><line stroke="${C.muted}" stroke-width="1" y1="${m.t}" y2="${Ht - m.b}"/></g></svg>`;
+  el.innerHTML = s;
+  const cur = el.querySelector(".cur"), hov = el.querySelector(".hov"), svg = el.firstChild;
+  if (o.animate && !CALM && svg.animate) el.querySelectorAll("path.draw").forEach(p => {
+    const len = p.getTotalLength();
+    p.animate([{ strokeDasharray: `${len}`, strokeDashoffset: `${len}` }, { strokeDasharray: `${len}`, strokeDashoffset: "0" }], { duration: 900, easing: "cubic-bezier(0.22,1,0.36,1)" });
+  });
+  const at = (ser, t) => ser.values[Math.round((t - ser.start) / HR)];
+  svg.onpointermove = e => {
+    const r = svg.getBoundingClientRect(), t = Math.round((o.t0 + ((e.clientX - r.left) - m.l) / (W - m.l - m.r) * (o.t1 - o.t0)) / HR) * HR;
+    if (t < o.t0 || t > o.t1) { hov.setAttribute("visibility", "hidden"); tip.hidden = true; return; }
+    hov.firstChild.setAttribute("x1", X(t)); hov.firstChild.setAttribute("x2", X(t)); hov.setAttribute("visibility", "visible");
+    const rows = o.series.map(ser => { const v = at(ser, t); return v == null ? "" : `<br><i style="background:${ser.color}"></i>${ser.name} ${gw(v, 2)} GW`; }).join("");
+    showTip(stamp(t, sel.tz) + rows, e);
+  };
+  svg.onpointerleave = () => { hov.setAttribute("visibility", "hidden"); tip.hidden = true; };
+  if (o.onPick) svg.onclick = e => {
+    const r = svg.getBoundingClientRect(), t = o.t0 + ((e.clientX - r.left) - m.l) / (W - m.l - m.r) * (o.t1 - o.t0);
+    o.onPick(t);
+  };
+  return { setCursor(t, v) {
+    if (t == null) return cur.setAttribute("visibility", "hidden");
+    cur.setAttribute("visibility", "visible");
+    cur.children[0].setAttribute("x1", X(t)); cur.children[0].setAttribute("x2", X(t));
+    cur.children[1].setAttribute("cx", X(t)); cur.children[1].setAttribute("cy", Y(v));
+  } };
+}
+function scatterChart(el, r) {
+  const W = Math.max(240, el.clientWidth || 300), Ht = 190, m = { l: 34, r: 8, t: 8, b: 26 };
+  const ts = r.scatter.map(p => p[0]).concat(r.ringT), ms = r.scatter.map(p => p[1]).concat(r.ringV);
+  const x0 = Math.min(...ts) - 1, x1 = Math.max(...ts) + 1, y0 = Math.min(...ms) * .97, y1 = Math.max(...ms) * 1.03;
+  const X = t => m.l + (t - x0) / (x1 - x0) * (W - m.l - m.r), Y = v => m.t + (y1 - v) / (y1 - y0) * (Ht - m.t - m.b);
+  let s = `<svg viewBox="0 0 ${W} ${Ht}" height="${Ht}" role="img" aria-label="Scatter of temperature against demand">`;
+  nice(y0, y1).forEach(v => { s += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="${C.line}"/><text x="${m.l - 6}" y="${Y(v) + 3.5}" text-anchor="end">${gw(v, v % 1000 ? 1 : 0)}</text>`; });
+  nice(x0, x1, 5).forEach(v => { s += `<text x="${X(v)}" y="${Ht - 12}" text-anchor="middle">${v}&deg;</text>`; });
+  r.scatter.forEach(p => { s += `<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="1.9" fill="${C.actual}" opacity=".45"/>`; });
+  s += `<circle class="mark" r="6" fill="none" stroke="${C.forecast}" stroke-width="2.5"/><text x="${W - m.r}" y="${Ht - 1}" text-anchor="end">temperature, &deg;C</text></svg>`;
+  el.innerHTML = s;
+  const mark = el.querySelector(".mark"), svg = el.firstChild;
+  svg.onpointermove = e => {
+    const b = svg.getBoundingClientRect(), mx = e.clientX - b.left, my = e.clientY - b.top;
+    let best = null, bd = 400;
+    r.scatter.forEach(p => { const d = (X(p[0]) - mx) ** 2 + (Y(p[1]) - my) ** 2; if (d < bd) { bd = d; best = p; } });
+    if (best) showTip(`${best[0]}&deg;C &middot; ${gw(best[1], 2)} GW`, e); else tip.hidden = true;
+  };
+  svg.onpointerleave = () => { tip.hidden = true; };
+  return { setCursor(h) { mark.setAttribute("cx", X(r.ringT[h])); mark.setAttribute("cy", Y(r.ringV[h])); } };
+}
+const FUEL_COLOR = { "Nuclear": css("--f-nuclear"), "Coal, lignite and gas": css("--f-fossil"), "Hydro": css("--f-hydro"), "Wind": css("--f-wind"), "Solar": css("--f-solar"), "Other renewables": css("--f-other") };
+const DAY = 86400;
+/* stacked daily generation by fuel, with consumption drawn over it on the same GWh axis */
+function supplyChart(el, s, animate) {
+  const names = Object.keys(s.fuels), n = s.used.length, W = Math.max(240, el.clientWidth || 300), Ht = 220, m = { l: 40, r: 8, t: 8, b: 20 };
+  const tops = [], acc = new Array(n).fill(0);
+  names.forEach(k => { tops.push(s.fuels[k].map((v, i) => (acc[i] += v))); });
+  const y1 = Math.max(...acc, ...s.used) * 1.05;
+  const X = i => m.l + i / (n - 1) * (W - m.l - m.r), Y = v => m.t + (1 - v / y1) * (Ht - m.t - m.b);
+  let svg = `<svg viewBox="0 0 ${W} ${Ht}" height="${Ht}" role="img" aria-label="Daily electricity generation by fuel against consumption, last ${n} days">`;
+  nice(0, y1).forEach(v => { svg += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="${C.line}"/><text x="${m.l - 6}" y="${Y(v) + 3.5}" text-anchor="end">${v >= 1000 ? (v / 1000).toFixed(v % 1000 ? 1 : 0) + "k" : v}</text>`; });
+  for (let i = 0; i < n; i++) {
+    const t = s.start + i * DAY;
+    if (clock(t, "Asia/Kolkata", { day: "numeric" }) === "1") svg += `<line x1="${X(i)}" x2="${X(i)}" y1="${m.t}" y2="${Ht - m.b}" stroke="${C.line}" stroke-dasharray="1 4"/><text x="${X(i) + 3}" y="${Ht - 6}">${clock(t, "Asia/Kolkata", { month: "short" })}</text>`;
+  }
+  names.forEach((k, j) => {
+    const top = tops[j], bot = j ? tops[j - 1] : new Array(n).fill(0);
+    const d = top.map((v, i) => `${i ? "L" : "M"}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join("") + bot.map((_, i) => `L${X(n - 1 - i).toFixed(1)} ${Y(bot[n - 1 - i]).toFixed(1)}`).join("") + "Z";
+    svg += `<path class="band" d="${d}" fill="${FUEL_COLOR[k]}" stroke="${css("--surface")}" stroke-width="1.5"/>`;
+  });
+  svg += `<path class="draw" d="${s.used.map((v, i) => `${i ? "L" : "M"}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join("")}" fill="none" stroke="${C.fg}" stroke-width="2" stroke-dasharray="5 3"/>`;
+  svg += `<g class="hov" visibility="hidden"><line stroke="${C.fg}" stroke-width="1" y1="${m.t}" y2="${Ht - m.b}"/></g></svg>`;
+  el.innerHTML = svg;
+  const root = el.firstChild, hov = el.querySelector(".hov");
+  if (animate && !CALM && root.animate) root.querySelectorAll(".band").forEach((p, j) => p.animate([{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: 500, delay: j * 60, easing: "cubic-bezier(0.22,1,0.36,1)", fill: "backwards" }));
+  root.onpointermove = e => {
+    const b = root.getBoundingClientRect(), i = Math.round(((e.clientX - b.left) * W / b.width - m.l) / (W - m.l - m.r) * (n - 1));
+    if (i < 0 || i >= n) { hov.setAttribute("visibility", "hidden"); tip.hidden = true; return; }
+    hov.firstChild.setAttribute("x1", X(i)); hov.firstChild.setAttribute("x2", X(i)); hov.setAttribute("visibility", "visible");
+    const tot = acc[i], rows = names.slice().reverse().map(k => `<br><i style="background:${FUEL_COLOR[k]}"></i>${k} ${Math.round(s.fuels[k][i])} GWh (${(s.fuels[k][i] / tot * 100).toFixed(1)}%)`).join("");
+    showTip(`${clock(s.start + i * DAY, "Asia/Kolkata", { weekday: "short", day: "2-digit", month: "short" })}<br>Generated ${Math.round(tot)} GWh &middot; consumed ${Math.round(s.used[i])} GWh${rows}`, e);
+  };
+  root.onpointerleave = () => { hov.setAttribute("visibility", "hidden"); tip.hidden = true; };
+}
+function drawSupply(animate) {
+  const r = sel, from = r.supply ? r : REG.find(x => x.id === r.supplyFrom);
+  $("supplySec").hidden = !from;
+  if (!from) return;
+  const s = from.supply, sh = s.share;
+  const renew = sh["Wind"] + sh["Solar"] + sh["Other renewables"];
+  $("supplyNote").textContent = (r.supply ? "" : `States publish no generation figures, so this is the ${from.name} grid that ${r.name} belongs to. `) +
+    `Daily energy by fuel as reported by Grid-India, in GWh (million units), for the last ${s.used.length} days up to ${r.lastDay}. This is what happened, not a forecast. The dashed line is what the area consumed.`;
+  const net = from.id === "IN"
+    ? `<b>+${s.grossGap}%</b><span>generation above consumption: plants' own use, line losses and exports to neighbours</span>`
+    : `<b>${s.net > 0 ? "+" : ""}${s.net}%</b><span>${Math.abs(s.net) < 3 ? "roughly balanced against" : s.net > 0 ? "more generated than" : "less generated than"} its own use, last 30 days (approximate)</span><span class="tag">${Math.abs(s.net) < 3 ? "Makes about what it uses" : s.net > 0 ? "Makes more than it uses, sends power out" : "Makes less than it uses, brings power in"}</span>`;
+  $("supKpi").innerHTML = `<div><b>${Math.round(s.lastGen).toLocaleString("en")}</b><span>GWh generated on ${r.lastDay}</span></div>` +
+    `<div><b>${renew.toFixed(1)}%</b><span>solar, wind and other renewables, last 30 days</span></div>` +
+    `<div><b>${sh["Coal, lignite and gas"].toFixed(1)}%</b><span>coal, lignite and gas, last 30 days</span></div><div>${net}</div>`;
+  $("supKeys").innerHTML = Object.keys(s.fuels).slice().reverse().map(k => key(`${k} ${sh[k].toFixed(1)}%`, FUEL_COLOR[k], "a")).join("") + key("Consumed", C.fg, "d");
+  supplyChart($("supply"), s, animate);
+  const days = s.short.filter(v => v > 0).length, total = s.short.reduce((a, b) => a + b, 0);
+  $("supShort").textContent = days ? `Unmet demand: ${total.toFixed(1)} GWh across ${days} of the last ${s.short.length} days (${(total / s.used.reduce((a, b) => a + b, 0) * 100).toFixed(3)}% of demand).` : `No unmet demand reported in the last ${s.short.length} days.`;
+}
+const key = (name, c, cls = "") => `<span><i class="${cls}" style="--c:${c}"></i>${name}</span>`;
+
+/* ---------- Panel ---------- */
+let mainChart, scatter;
+function drawCharts(animate) {
+  const r = sel, S = T0(r), t0 = S - 72 * HR, t1 = S + H * HR, skip = (t0 - r.histStart) / HR;
+  const fore = { name: "Expected demand", color: C.forecast, start: S, values: r.p50, width: 2.5 };
+  const series = [
+    { name: HL(r), color: C.actual, start: t0, values: r.hist.slice(skip) },
+    { name: "Official daily peak", color: C.operator, start: t0, values: r.peakStep.slice(skip) },
+  ];
+  series.push(fore);
+  mainChart = lineChart($("main"), {
+    t0, t1, height: 230, label: `Demand in ${r.name}: past three days and the 48 hour forecast`, series, nowT: S, animate,
+    band: { start: S, lo: r.p10, hi: r.p90 },
+    onPick: t => { if (t >= S) setHour(Math.round((t - S) / HR)); },
+  });
+  $("mainKeys").innerHTML = key(HL(r), C.actual) + (r.peakStep.some(v => v) ? key("Official daily peak", C.operator) : "") + key("Expected demand", C.forecast) + key("Expected range", C.forecast, "a");
+  lineChart($("bt"), {
+    t0: r.btStart, t1: r.btStart + (r.btActual.length - 1) * HR, height: 190, dayEvery: 4, label: "Backtest for the final two weeks", animate,
+    series: [{ name: "Real demand", color: C.actual, start: r.btStart, values: r.btActual }, { name: "Model's forecast", color: C.forecast, start: r.btStart, values: r.btModel, width: 1.5 }],
+  });
+  $("btKeys").innerHTML = key("Real demand", C.actual) + key("Model's forecast", C.forecast);
+  scatter = scatterChart($("scatter"), r);
+  drawSupply(animate);
+  $("story").innerHTML = storyLines(sel).map(([t, c]) => `<li style="--c:${c}"><span>${t}</span></li>`).join("");
+}
+function drawStatic() {
+  const r = sel;
+  $("rname").textContent = r.name;
+  $("rmeta").textContent = r.about;
+  $("fresh").innerHTML = r.fresh ? r.fresh.map(([b, t]) => `<div><b>${b}</b><span>${t}</span></div>`).join("") : `<div><b>${r.lastHour}</b><span>Latest hourly figures, for all India. Used to learn how a day's demand rises and falls.</span></div><div><b>${r.lastDay}</b><span>Latest daily total for this area. Sets how big demand is.</span></div><div><b>Live</b><span>Weather forecast from Open-Meteo.</span></div>`;
+  $("stripTitle").textContent = `Next ${H} hours, hour by hour, ${r.tzName || "India time"}`;
+  $("festBox").hidden = !r.festivals.length;
+  $("fest").innerHTML = r.festivals.map(f => `<div><small>${f.day}</small>${f.name}${f.offset ? `, day ${f.offset > 0 ? "+" : ""}${f.offset}` : ""}<b>${f.pct > 0 ? "+" : ""}${f.pct}%</b></div>`).join("");
+  const peak = r.p50.indexOf(Math.max(...r.p50));
+  $("stripNote").textContent = `Peak ${gw(r.p50[peak])} GW on ${stamp(T0(r) + peak * HR, r.tz)}. Brighter means closer to the yearly peak.`;
+  $("strip").innerHTML = r.p50.map((v, i) => `<button data-h="${i}" aria-label="${stamp(T0(r) + i * HR, r.tz)}: ${gw(v)} gigawatts" style="background:${heatCss(v / r.peak)}"></button>`).join("");
+  $("stripTicks").innerHTML = r.p50.map((_, i) => i % 12 ? "" : `<span style="left:${i / 49 * 100}%">${clock(T0(r) + i * HR, r.tz, { weekday: "short", hour: "2-digit", minute: "2-digit" })}</span>`).join("");
+  $("mainNote").textContent = r.mainNote;
+  $("pctLabel").textContent = r.peakLabel ? "of its estimated busiest hour of the past year" : "of the busiest hour of the past year";
+  $("btTitle").textContent = r.btTitle;
+  $("scoreNote").textContent = r.scoreNote;
+  $("score").innerHTML = r.tests.map(x => {
+    const max = Math.max(x.model, x.base, x.op || 0), row = (n, v, c) => `<div class="row"><span>${n}</span><div class="track"><i style="width:${v / max * 100}%;background:${c}"></i></div><span class="v">${v.toFixed(1)}%</span></div>`;
+    return `<div class="test"><h4>${x.title}<small>${x.when}</small></h4>${row("Loadline model", x.model, C.forecast)}${x.op != null ? row("Grid operator's own forecast", x.op, C.operator) : ""}${row("Same time last week", x.base, C.muted)}</div>`;
+  }).join("");
+  $("coverage").textContent = `The shaded expected range caught the real value ${r.coverage}% of the time (${r.coverageOf}). The goal is 80%. A typical ${r.maeOf} miss is ${gw(r.mae, 2)} GW.`;
+  const t = r.tests[0], better = t.model < t.base;
+  const acc = 100 - t.model, word = x => /hour/i.test(x.title) ? "an average hour" : /peak/i.test(x.title) ? "an average day's peak" : "an average day";
+  $("verdict").innerHTML = `<div class="v">${acc.toFixed(1)}%</div><div class="t">accurate. On past days it had never seen, the forecast was off by <b>${t.model.toFixed(1)}%</b> on ${word(t)}.<br><span class="chip ${better ? "good" : "warn"}">${better ? `Better than a simple guess (off by ${t.base.toFixed(1)}%)` : `Not better than a simple guess (off by ${t.base.toFixed(1)}%)`}</span></div>` +
+    (r.tests.length > 1 ? `<ul>${r.tests.slice(1).map(x => `<li><b>${x.title}</b> (${x.when}): off by ${x.model.toFixed(1)}%, against ${x.base.toFixed(1)}% for the simple guess</li>`).join("")}</ul>` : "") +
+    `<p class="small">The "simple guess" is: demand will be the same as at this time last week. Tests use only data from before each period, so the forecast could not peek at the answer. The shaded expected range caught the real value ${r.coverage}% of the time; the goal is 80%, so treat the range as a rough guide.</p>`;
+  $("scatterNote").textContent = r.scatterNote;
+  $("btNote").textContent = r.btNote;
+  const colors = { "Recent demand": C.actual, Calendar: C.forecast, Weather: C.operator };
+  $("drivers").innerHTML = Object.entries(r.drivers).map(([name, g]) => `<div class="test"><h4>${name}</h4><div class="seg" style="margin-top:6px">${Object.entries(g).sort().map(([n, v]) => `<i style="width:${v}%;background:${colors[n]}"></i>`).join("")}</div><div class="keys">${Object.entries(g).sort().map(([n, v]) => key(`${n} ${Math.round(v)}%`, colors[n])).join("")}</div></div>`).join("");
+  $("table").innerHTML = `<thead><tr><th scope="col">Local time</th><th scope="col">Forecast GW</th><th scope="col">Low</th><th scope="col">High</th><th scope="col">&deg;C</th></tr></thead><tbody>` +
+    r.p50.map((v, i) => `<tr data-h="${i}"><td>${stamp(T0(r) + i * HR, r.tz)}</td><td>${gw(v, 2)}</td><td>${gw(r.p10[i], 2)}</td><td>${gw(r.p90[i], 2)}</td><td>${r.temp[i]}</td></tr>`).join("") + "</tbody>";
+  $("foot").textContent = `Demand: ${r.source}. Weather: Open-Meteo. Forecast issued ${stamp(D.generated, r.tz)} ${r.tzName || "India time"}. Run ${r.kind === "country" ? "world.py" : "india.py"} to refresh.`;
+  drawCharts(true);
+}
+let countJob = 0;
+function countTo(el, to) {
+  const from = parseFloat(el.textContent) || 0, job = ++countJob, t0 = performance.now();
+  const step = now => {
+    if (job !== countJob) return;
+    const k = Math.min(1, (now - t0) / 600), e = 1 - (1 - k) ** 3;
+    el.textContent = (from + (to - from) * e).toFixed(1);
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+function storyLines(r) {
+  const v = r.p50, pk = v.indexOf(Math.max(...v)), lo = v.indexOf(Math.min(...v)), when = i => stamp(T0(r) + i * HR, r.tz);
+  const lines = [[`Demand peaks at <b>${gw(v[pk])} GW</b> on <b>${when(pk)}</b>, ${Math.round(v[pk] / r.peak * 100)}% of its ${r.peakLabel ? "estimated " : ""}yearly peak.`, heatCss(v[pk] / r.peak)],
+    [`It is lowest at <b>${gw(v[lo])} GW</b> on ${when(lo)}.`, heatCss(v[lo] / r.peak)]];
+  const f = r.festivals.slice().sort((a, b) => a.pct - b.pct)[0];
+  if (f) lines.push([`<b>${f.name}</b> is expected to cut demand by about <b>${Math.abs(Math.round(f.pct))}%</b> on ${f.day}.`, "#9b9b9b"]);
+  const from = r.supply ? r : REG.find(x => x.id === r.supplyFrom);
+  if (from && from.supply) {
+    const sh = from.supply.share, renew = sh["Wind"] + sh["Solar"] + sh["Other renewables"];
+    lines.push([`<b>${Math.round(renew)}%</b> of ${r.supply ? "its" : `the ${from.name} grid's`} electricity came from solar, wind and other renewables in the last 30 days.`, css("--f-wind")]);
+  }
+  return lines;
+}
+function drawHour(animate) {
+  const r = sel, h = hour, t = T0(r) + h * HR, s = share(r, h);
+  if (animate && !CALM) countTo($("gw"), r.p50[h] / 1000);
+  else { countJob++; $("gw").textContent = gw(r.p50[h]); }
+  $("rtime").textContent = stamp(t, r.tz) + " local";
+  $("band").textContent = `${gw(r.p10[h])}–${gw(r.p90[h])}`;
+  $("pct").textContent = Math.round(s * 100) + "%";
+  $("temp").textContent = r.temp[h] + "°C";
+  const a = $("alert"); a.hidden = s < .9;
+  a.innerHTML = s >= .9 ? `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8 15 14H1z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 6v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="12" r=".9" fill="currentColor"/></svg><span>Within ${Math.max(0, Math.round((1 - s) * 100))}% of this area's yearly peak at this hour.</span>` : "";
+  mainChart.setCursor(t, r.p50[h]); scatter.setCursor(h);
+  document.querySelectorAll("#strip button").forEach((b, i) => b.classList.toggle("on", i === h));
+  document.querySelectorAll("#table tr[data-h]").forEach((row, i) => row.classList.toggle("on", i === h));
+}
+function drawRank() {
+  $("regions").querySelectorAll("button").forEach(b => {
+    const r = BYID[b.dataset.id], s = share(r, hour);
+    b.classList.toggle("on", r === sel);
+    b.setAttribute("aria-current", r === sel ? "true" : "false");
+    b.querySelector(".p").textContent = Math.round(s * 100) + "%";
+    const bar = b.querySelector(".bar i"); bar.style.width = Math.min(100, s * 100) + "%"; bar.style.background = heatCss(s);
+  });
+}
+function setHour(h) {
+  hour = Math.max(0, Math.min(H, h));
+  $("scrub").value = hour;
+  const t = T0(sel) + hour * HR;
+  $("when").textContent = stamp(t, sel.tz) + " " + (sel.tzName || "India time");
+  $("ahead").textContent = `+${hour} h from forecast issue`;
+  $("total").textContent = Math.round(REG[0].p50[hour] / 1000) + " GW";
+  drawRank(); drawHour();
+  if (G.ok) G.setHour();
+}
+function select(r, instant) {
+  sel = r; tip.hidden = true;
+  const c = countryOf(r);
+  if (c !== scope) { scope = c; level = "country"; renderRank(); if (G.ok) { G.apply(); G.focus(c); } }
+  drawStatic(); drawRank(); drawHour(!instant);
+  if (G.ok) { G.select(r); if (instant) G.focus(c, true); }
+}
+function pickCountry(name) {
+  scope = name; level = "country"; renderRank();
+  if (G.ok) G.apply();
+  select(COUNTRIES.get(name).areas[0]);
+  if (G.ok) G.focus(name);
+}
+
+const BYID = Object.fromEntries(REG.map(r => [r.id, r]));
+const countryOf = r => r.kind === "country" ? (r.country || r.name) : "India";
+const COUNTRIES = new Map();
+REG.forEach(r => {
+  const c = countryOf(r);
+  if (!COUNTRIES.has(c)) COUNTRIES.set(c, { name: c, group: r.kind === "country" ? r.group : "Asia", areas: [] });
+  COUNTRIES.get(c).areas.push(r);
+});
+COUNTRIES.forEach(c => { if (c.name !== "India") c.areas.sort((a, b) => (!!b.total - !!a.total) || b.p50[0] - a.p50[0]); });  // the whole country first
+const byGroup = {};
+COUNTRIES.forEach(c => (byGroup[c.group] = byGroup[c.group] || []).push(c));
+$("country").innerHTML = Object.keys(byGroup).sort().map(g => `<optgroup label="${g}">` + byGroup[g].sort((a, b) => a.name.localeCompare(b.name)).map(c => `<option value="${c.name}">${c.name}${c.areas.length > 1 ? ` (${c.areas.filter(r => !r.total).length} areas)` : ""}</option>`).join("") + "</optgroup>").join("");
+let scope = "India", level = "world";  // world: one dot per country. country: that country's regions
+function renderRank() {
+  const c = COUNTRIES.get(scope);
+  $("country").value = scope;
+  $("regionHead").textContent = c.areas.length > 1 ? `Regions of ${scope}, % of busiest hour` : `${scope}, % of busiest hour`;
+  $("regions").innerHTML = c.areas.map(r => `<button class="${r.total ? "nation" : r.kind}" data-id="${r.id}"><span class="n">${r.short || r.name}</span><span class="p"></span><span class="bar"><i></i></span></button>`).join("");
+  $("regions").querySelectorAll("button").forEach(b => { b.onclick = () => select(BYID[b.dataset.id]); });
+}
+$("country").onchange = e => pickCountry(e.target.value);
+$("worldBtn").onclick = () => { stopTour(); level = "world"; if (G.ok) { G.apply(); G.select(sel); G.focus(scope); } };
+renderRank();
+$("strip").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setHour(+b.dataset.h); });
+$("strip").addEventListener("pointermove", e => {
+  const b = e.target.closest("button"); if (!b) return (tip.hidden = true);
+  const i = +b.dataset.h; showTip(`${stamp(T0(sel) + i * HR, sel.tz)}<br>${gw(sel.p50[i], 2)} GW &middot; ${sel.temp[i]}&deg;C`, e);
+});
+$("strip").addEventListener("pointerleave", () => { tip.hidden = true; });
+$("scrub").max = H;
+function drawTrack() {
+  const svg = $("trackArt"), W = svg.clientWidth || 300, Ht = 32, v = REG[0].p50, lo = Math.min(...v), hi = Math.max(...v);
+  const X = i => i / H * W, Y = x => Ht - 4 - (x - lo) / (hi - lo || 1) * (Ht - 10), home = xyz(22.5, 79);
+  let out = "";
+  for (let i = 0; i < H; i++) if (sunDir(D.start + (i + .5) * HR).dot(home) > 0) out += `<rect x="${X(i).toFixed(1)}" y="0" width="${(X(i + 1) - X(i) + .5).toFixed(1)}" height="${Ht}" fill="rgba(255,255,255,.07)"/>`;
+  const line = v.map((x, i) => `${i ? "L" : "M"}${X(i).toFixed(1)} ${Y(x).toFixed(1)}`).join("");
+  out += `<path d="${line}L${W} ${Ht}L0 ${Ht}Z" fill="${C.forecast}" opacity=".25"/><path d="${line}" fill="none" stroke="${C.forecast}" stroke-width="1.5"/>`;
+  svg.setAttribute("viewBox", `0 0 ${W} ${Ht}`);
+  svg.innerHTML = out;
+}
+$("scrub").oninput = e => { stop(); setHour(+e.target.value); };
+let timer = null;
+function stop() { clearInterval(timer); timer = null; $("play").innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9.5-5.5z" fill="currentColor"/></svg>'; $("play").setAttribute("aria-label", "Play the 48 hour forecast"); }
+let autoReturn = null;
+function play(auto) {
+  if (hour >= H) setHour(0);
+  autoReturn = auto ? hour : null;
+  $("play").innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="2.5" width="3.5" height="11" rx="1" fill="currentColor"/><rect x="9.5" y="2.5" width="3.5" height="11" rx="1" fill="currentColor"/></svg>'; $("play").setAttribute("aria-label", "Pause");
+  timer = setInterval(() => {
+    if (hour < H) return setHour(hour + 1);
+    const back = autoReturn; stop();
+    if (back != null) setTimeout(() => { if (!timer) setHour(back); }, 900);  // after the first-visit preview, return to now
+  }, 220);
+}
+$("play").onclick = () => { stopTour(); timer ? stop() : play(false); };
+let tourJob = null, acted = false;
+const TOUR = () => [REG[0], ...GRIDS_ORDER];
+function stopTour() {
+  if (!tourJob) return;
+  clearTimeout(tourJob); tourJob = null;
+  $("tour").setAttribute("aria-pressed", "false"); $("tour").textContent = "Tour the grids"; $("caption").hidden = true;
+}
+function tourStep(i) {
+  const list = TOUR(), r = list[i % list.length];
+  select(r);
+  const c = $("caption");
+  c.innerHTML = `<span class="step">${i % list.length + 1} of ${list.length}</span><span class="title">${r.name}</span>${storyLines(r)[0][0]}`;
+  c.hidden = false;
+  if (!CALM && c.animate) c.animate([{ opacity: .4, transform: "translate(-50%, 16px)" }, { opacity: 1, transform: "translate(-50%, 0)" }], { duration: 500, easing: "cubic-bezier(0.22,1,0.36,1)" });
+  tourJob = setTimeout(() => tourStep(i + 1), 5500);
+}
+$("tour").onclick = () => {
+  if (tourJob) return stopTour();
+  if (scope !== "India" || level !== "country") pickCountry("India");
+  stop(); $("tour").setAttribute("aria-pressed", "true"); $("tour").textContent = "Stop tour"; tourStep(0);
+};
+// any other interaction ends the tour and cancels the first-visit preview
+["pointerdown", "keydown", "wheel"].forEach(ev => addEventListener(ev, e => {
+  if (e.target.closest && e.target.closest("#tour")) return;
+  acted = true; stopTour();
+}, { capture: true, passive: true }));
+$("sub").textContent = elapsed > H
+  ? `This forecast has expired. It was issued ${stamp(D.generated, sel.tz)} India time. Run india.py for a new one.`
+  : `Hourly electricity demand forecast for India, its five grids and ${REG.filter(r => r.kind === "state").length} states, plus ${COUNTRIES.size - 1} other countries. Issued ${stamp(D.generated, sel.tz)} India time.`;
+
+try { initGlobe(); } catch (err) { console.error(err); $("nogl").hidden = false; }
+select(sel, true); setHour(hour); drawTrack();
+if (!CALM) setTimeout(() => { if (!acted && !timer && !tourJob) play(true); }, 2800);
+let rw = $("panel").clientWidth;
+new ResizeObserver(() => { const w = $("panel").clientWidth; if (w !== rw) { rw = w; drawCharts(); drawHour(); } }).observe($("panel"));
+new ResizeObserver(drawTrack).observe($("trackArt"));
+</script>

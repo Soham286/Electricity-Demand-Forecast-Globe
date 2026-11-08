@@ -1,0 +1,63 @@
+# Rebuilds every forecast each morning and publishes the site to GitHub Pages.
+# One-time setup: Settings > Pages > Source: "GitHub Actions". Optional: add a repository secret
+# EIA_API_KEY (a free key from https://www.eia.gov/opendata/) so US data is not rate limited.
+name: Update forecasts and publish
+
+on:
+  schedule:
+    - cron: "30 3 * * *"   # every day at 03:30 UTC, 09:00 in India
+  workflow_dispatch:        # the "Run workflow" button, for the first build
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Check the code first
+        run: python -m pytest -q
+      - name: Restore downloaded data
+        uses: actions/cache@v4
+        with:
+          path: cache
+          key: loadline-cache-${{ github.run_id }}
+          restore-keys: loadline-cache-
+      - name: Forecast India
+        run: python india.py
+      - name: Forecast the rest of the world
+        run: python world.py
+      - name: Check the new forecasts before publishing them
+        run: python -m pytest -q test_data.py
+      - name: Assemble the site
+        run: |
+          mkdir _site
+          cp index.html data.js world.js land.js _site/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
