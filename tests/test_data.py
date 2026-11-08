@@ -4,14 +4,14 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).parent
+WEB = Path(__file__).resolve().parents[1] / "web"
 REQUIRED = ["id", "name", "kind", "lat", "lon", "tz", "peak", "tests", "p50", "p10", "p90", "temp", "hist", "histStart", "peakStep", "btStart", "btActual",
             "btModel", "scatter", "ringT", "ringV", "drivers", "festivals", "coverage", "coverageOf", "mae", "maeOf", "about", "mainNote", "scoreNote",
             "scatterNote", "btTitle", "btNote"]
 
 
 def load(name):
-    f = ROOT / name
+    f = WEB / name
     if not f.exists():
         pytest.skip(f"{name} has not been generated")
     return json.loads(f.read_text(encoding="utf-8").split("=", 1)[1].rstrip().rstrip(";"))
@@ -19,7 +19,7 @@ def load(name):
 
 def regions():
     out = load("data.js")["regions"]
-    return out + (load("world.js")["regions"] if (ROOT / "world.js").exists() else [])
+    return out + (load("world.js")["regions"] if (WEB / "world.js").exists() else [])
 
 
 def test_every_area_has_what_the_page_reads():

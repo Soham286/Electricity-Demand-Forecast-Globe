@@ -1,6 +1,9 @@
 # Rebuilds every forecast each morning and publishes the site to GitHub Pages.
 # One-time setup: Settings > Pages > Source: "GitHub Actions". Optional: add a repository secret
 # EIA_API_KEY (a free key from https://www.eia.gov/opendata/) so US data is not rate limited.
+#
+# To finish faster the work runs on several machines at once:
+#   test -> india | world (8 slices) -> build (merge, check, assemble) -> deploy
 name: Update forecasts and publish
 
 on:
@@ -17,37 +20,121 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+env:
+  EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
+
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
-    env:
-      EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -r requirements.txt
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev]"
       - name: Check the code first
         run: python -m pytest -q
+
+  india:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e .
       - name: Restore downloaded data
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: cache
-          key: forecast-cache-${{ github.run_id }}
-          restore-keys: forecast-cache-
+          key: forecast-cache-india-${{ github.run_id }}
+          restore-keys: forecast-cache-india-
       - name: Forecast India
-        run: python india.py
-      - name: Forecast the rest of the world
-        run: python world.py
+        run: python -m forecast_globe.india
+      - name: Keep downloaded data for next time, even after a failure
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: cache
+          key: forecast-cache-india-${{ github.run_id }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: india-data
+          path: web/data.js
+
+  world:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e .
+      - name: Restore downloaded data
+        uses: actions/cache/restore@v4
+        with:
+          path: cache
+          key: forecast-cache-world-${{ matrix.shard }}-${{ github.run_id }}
+          restore-keys: forecast-cache-world-${{ matrix.shard }}-
+      - name: Forecast slice ${{ matrix.shard }} of 8
+        run: python -m forecast_globe.world --shard ${{ matrix.shard }}/8
+      - name: Keep downloaded data for next time, even after a failure
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: cache
+          key: forecast-cache-world-${{ matrix.shard }}-${{ github.run_id }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: world-part-${{ matrix.shard }}
+          path: web/world.part-${{ matrix.shard }}.json
+
+  build:
+    needs: [india, world]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev]"
+      - name: Fetch the India forecast
+        uses: actions/download-artifact@v4
+        with:
+          name: india-data
+          path: web
+      - name: Fetch the world slices
+        uses: actions/download-artifact@v4
+        with:
+          pattern: world-part-*
+          path: parts
+          merge-multiple: true
+      - name: Merge the world slices
+        run: python -m forecast_globe.world --merge parts/*.json
       - name: Check the new forecasts before publishing them
-        run: python -m pytest -q test_data.py
+        run: python -m pytest -q tests/test_data.py
       - name: Assemble the site
         run: |
           mkdir _site
-          cp index.html data.js world.js land.js _site/
+          cp web/index.html web/data.js web/world.js web/land.js _site/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

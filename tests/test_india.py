@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from india import OFF, TZ, daily_features, daily_weather, festival_effect, festival_table, peak_ratio, regional_shape
-from pipeline import WX
+from forecast_globe.india import OFF, TZ, daily_features, daily_weather, festival_effect, festival_table, peak_ratio, regional_shape
+from forecast_globe.config import WX
 
 
 def test_daily_features_ignore_demand_newer_than_the_lead():

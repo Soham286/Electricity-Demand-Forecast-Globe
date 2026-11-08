@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "forecast-globe"
+version = "1.0.0"
+description = "Hour by hour electricity demand forecasts for India and the world, on an interactive 3D globe"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pandas",
+    "lightgbm",
+    "scikit-learn",
+    "scipy",
+    "requests",
+    "holidays",
+    "tzdata",
+    "openpyxl",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+forecast-india = "forecast_globe.india:main"
+forecast-world = "forecast_globe.world:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

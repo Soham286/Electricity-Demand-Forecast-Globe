@@ -1,16 +1,16 @@
 """India's 48-hour demand forecast. No free live hourly feed exists, so two models are multiplied:
 daily level (fresh daily totals + weather) x hourly shape (2024-25 hourly data + weather)."""
 import io, json, math
-from pathlib import Path
 
 import holidays
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
-from pipeline import WX, calibrate, get, mape, widen, wx_frame
+from forecast_globe.config import ROOT, WEB, WX
+from forecast_globe.feeds import get, wx_frame
+from forecast_globe.model import calibrate, mape, widen
 
-ROOT = Path(__file__).parent
 HOURLY = ROOT / "data" / "india_hourly_2024_2025.xlsx"  # https://data.mendeley.com/datasets/y58jknpgs8
 DAILY_URL = "https://robbieandrew.github.io/india/data/POSOCO_data.csv"
 TZ = "Asia/Kolkata"
@@ -473,7 +473,7 @@ def main():
         r["p10"] = [min(a, b) for a, b in zip(r["p10"], r["p50"])]
         r["p90"] = [max(a, b) for a, b in zip(r["p90"], r["p50"])]
     payload = dict(generated=int(pd.Timestamp.now(tz="UTC").timestamp()), start=int(now.timestamp()), horizon=HORIZON, regions=out)
-    (ROOT / "data.js").write_text("window.GRID_DATA=" + json.dumps(payload, separators=(",", ":")) + ";\n")
+    (WEB / "data.js").write_text("window.GRID_DATA=" + json.dumps(payload, separators=(",", ":")) + ";\n")
     print(f"{sum(r['kind'] == 'state' for r in out)} of {len(STATES)} states built")
     for r in out:
         if "supply" in r:

@@ -1,14 +1,15 @@
 """World forecasts: every country or grid with a free hourly demand feed, 48 hours ahead.
-Uses the shared models in pipeline.py and writes world.js for index.html. India has its own pipeline (india.py)."""
+Uses the shared models in model.py and feeds.py and writes world.js for index.html. India has its own pipeline (india.py)."""
 import json
+from pathlib import Path
 import sys
 import time
 
 import pandas as pd
 
-import pipeline as P
+from forecast_globe import config, feeds, model
 
-ROOT = P.ROOT
+OUT = config.WEB  # world.js is written next to the page
 COUNTRY = {"US": "United States", "CA": "Canada", "BR": "Brazil", "AU": "Australia", "JP": "Japan"}  # areas of these roll up into one country
 CONTINENT = {"US": "North America", "CA": "North America", "BR": "South America", "JP": "Asia", "AU": "Oceania", "ZA": "Africa"}
 
@@ -59,21 +60,21 @@ EXTRA = [
     dict(id="SA", name="South Australia", op="AEMO", cc="AU", sub="SA", tz="Australia/Adelaide", src="aemo", code="SA1", pts=[(-34.93, 138.60)]),
     dict(id="TAS", name="Tasmania", op="AEMO", cc="AU", sub="TAS", tz="Australia/Hobart", src="aemo", code="TAS1", pts=[(-42.88, 147.33)]),
 ]
-P.REGIONS.extend(EXTRA)  # so the US feed loader fetches every balancing authority in one pass
-for r in P.REGIONS:
+config.REGIONS.extend(EXTRA)  # so the US feed loader fetches every balancing authority in one pass
+for r in config.REGIONS:
     r.setdefault("group", CONTINENT.get(r["cc"], "Europe"))
 
 
 def whole(id, name, cc, tz, group, part_ids, short, about):
     """A whole country made by adding its areas together, then modelled like any other area."""
-    parts = [r for r in P.REGIONS if r["id"] in part_ids]
+    parts = [r for r in config.REGIONS if r["id"] in part_ids]
     assert len(parts) == len(part_ids), f"{name}: unknown part"
     return dict(id=id, name=name, op="Added up from its regions", cc=cc, tz=tz, src="sum", parts=parts, group=group, total=True, short=short, about=about,
                 pts=[p["pts"][0] for p in parts])
 
 
-P.SOURCE["sum"] = "the regions listed below, added together"
-P.REGIONS.extend([
+config.SOURCE["sum"] = "the regions listed below, added together"
+config.REGIONS.extend([
     whole("USALL", "United States", "US", "America/Chicago", "North America", {"CISO", "ERCO", "PJM", "NYIS", "ISNE", "MISO", "SWPP", "SOCO", "TVA", "FPL", "BPAT"}, "All 11 grids",
           "The 11 US grids listed below, added together. It covers much of the country but not every grid."),
     whole("BRALL", "Brazil", "BR", "America/Sao_Paulo", "South America", {"BRSE", "BRNE", "BRS", "BRN"}, "Whole country",
@@ -114,7 +115,7 @@ def adapt(d, r, now):
 
 
 def save(out, now):
-    cc = {"w:" + r["id"]: r["cc"] for r in P.REGIONS}
+    cc = {"w:" + r["id"]: r["cc"] for r in config.REGIONS}
     for x in out:
         x["cc"] = cc[x["id"]]
         x["name"] = NAME_FIX.get(x["id"].removeprefix("w:"), x["name"])
@@ -122,31 +123,67 @@ def save(out, now):
         x["short"] = x.get("short") or short_name(x["name"])
         x["p10"] = [min(a, b) for a, b in zip(x["p10"], x["p50"])]  # low never above expected, high never below
         x["p90"] = [max(a, b) for a, b in zip(x["p90"], x["p50"])]
-    payload = dict(generated=int(pd.Timestamp.now(tz="UTC").timestamp()), start=int(now.timestamp()), horizon=P.HORIZON, regions=out)
-    (ROOT / "world.js").write_text("window.WORLD_DATA=" + json.dumps(payload, separators=(",", ":")) + ";\n")
+    payload = dict(generated=int(pd.Timestamp.now(tz="UTC").timestamp()), start=int(now.timestamp()), horizon=config.HORIZON, regions=out)
+    (OUT / "world.js").write_text("window.WORLD_DATA=" + json.dumps(payload, separators=(",", ":")) + ";\n")
 
 
-def main():
-    now = P.now_hour()
-    only = set(sys.argv[1:])
+def shard_of(areas, k, n):
+    """The k-th of n roughly equal slices of the areas, so several machines can build them side by side."""
+    return [r for i, r in enumerate(areas) if i % n == k]
+
+
+def build_areas(areas, now, each=None):
+    """Forecast each area. A missing or stale feed skips that area rather than losing the others."""
     out, failed = [], []
-    if only and (ROOT / "world.js").exists():  # rerunning a few areas keeps the rest
-        old = json.loads((ROOT / "world.js").read_text().split("=", 1)[1].rstrip().rstrip(";"))["regions"]
-        out = [x for x in old if x["id"].removeprefix("w:") not in only]
-    for r in P.REGIONS:
-        if only and r["id"] not in only:
-            continue
+    for r in areas:
         try:
-            d = P.build(r, now)
+            d = model.build(r, now)
             out.append(adapt(d, r, now))
             b = d["backtest"]
             print(f"{r['id']:5} {r['name']:28} MAPE {b['mape']:5.2f}  last week {b['naive']:5.2f}  operator {b.get('op', '-')!s:>5}  band {b['coverage']:5.1f}%", flush=True)
-        except Exception as e:  # a missing or stale feed should not lose the other countries
+        except Exception as e:
             failed.append(r["id"])
             print(f"{r['id']:5} {r['name']:28} SKIPPED {type(e).__name__}: {str(e)[:90]}", flush=True)
-        save(out, now)
-    save(out, now)
-    print(f"wrote world.js: {len(out)} areas, skipped: {failed or 'none'}")
+        if each:
+            each(out)
+    return out, failed
+
+
+def merge(paths):
+    """Combine the parts built by separate machines into world.js."""
+    out = [x for path in paths for x in json.loads(Path(path).read_text())]
+    assert out, "no parts to merge"
+    ids = [x["id"] for x in out]
+    assert len(ids) == len(set(ids)), "an area appears in two parts"
+    save(out, pd.Timestamp(min(x["start"] for x in out), unit="s", tz="UTC"))
+    print(f"wrote world.js: {len(out)} areas from {len(list(paths))} parts")
+
+
+def main(argv=None):
+    """forecast-world                     every area, writes world.js
+    forecast-world FR DE USALL        only these areas, keeping the rest of world.js
+    forecast-world --shard 2/6        only the third of six slices, writes world.part-2.json (for parallel machines)
+    forecast-world --merge a.json ... combine parts into world.js"""
+    args = list(sys.argv[1:] if argv is None else argv)
+    now = feeds.now_hour()
+    if args[:1] == ["--merge"]:
+        return merge(args[1:])
+    if args[:1] == ["--shard"]:
+        k, n = (int(v) for v in args[1].split("/"))
+        out, failed = build_areas(shard_of(config.REGIONS, k, n), now)
+        part = OUT / f"world.part-{k}.json"
+        part.write_text(json.dumps(out, separators=(",", ":")))
+        print(f"wrote {part.name}: {len(out)} areas, skipped: {failed or 'none'}")
+        return
+    only = set(args)
+    keep = []
+    if only and (OUT / "world.js").exists():  # rerunning a few areas keeps the rest
+        old = json.loads((OUT / "world.js").read_text().split("=", 1)[1].rstrip().rstrip(";"))["regions"]
+        keep = [x for x in old if x["id"].removeprefix("w:") not in only]
+    areas = [r for r in config.REGIONS if not only or r["id"] in only]
+    out, failed = build_areas(areas, now, each=lambda done: save(keep + done, now))
+    save(keep + out, now)
+    print(f"wrote world.js: {len(keep) + len(out)} areas, skipped: {failed or 'none'}")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,9 @@
 import numpy as np
 import pandas as pd
 
-from pipeline import REGIONS, WX, calibrate, features, hourly, widen
+from forecast_globe.config import REGIONS, WX
+from forecast_globe.feeds import hourly
+from forecast_globe.model import calibrate, features, widen
 
 
 def sample():
@@ -41,7 +43,7 @@ def test_calibrated_band_covers_the_goal_on_steady_errors_and_never_misses_the_f
 
 def test_the_demand_model_can_be_built_and_fitted():
     # lightgbm's scikit-learn interface needs scikit-learn installed; a missing requirement shows up here in seconds
-    from pipeline import fit, predict
+    from forecast_globe.model import fit, predict
     rng = np.random.default_rng(2)
     x = pd.DataFrame({"hour": rng.integers(0, 24, 200), "temperature_2m": rng.normal(20, 5, 200), "level": np.full(200, 100.0)})
     y = pd.Series(100 * (1 + 0.01 * x["hour"]))

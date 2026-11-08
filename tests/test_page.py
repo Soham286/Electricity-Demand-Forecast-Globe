@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).parent
-HTML = (ROOT / "index.html").read_text(encoding="utf-8")
+WEB = Path(__file__).resolve().parents[1] / "web"
+HTML = (WEB / "index.html").read_text(encoding="utf-8")
 
 
 def test_the_page_script_parses():
@@ -20,4 +20,4 @@ def test_the_page_script_parses():
 def test_every_file_the_page_loads_is_in_the_repo():
     for name in ("data.js", "world.js", "land.js"):
         assert f'src="{name}"' in HTML
-    assert (ROOT / "land.js").exists()
+    assert (WEB / "land.js").exists()

@@ -5,3 +5,8 @@ __pycache__/
 .claude/
 _site/
 .venv/
+*.egg-info/
+build/
+dist/
+web/world.part-*.json
+parts/
